@@ -1,16 +1,28 @@
-# React + Vite
+# 🤖 TechPulse Pro
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Universal Intelligence Coordination System.**
 
-Currently, two official plugins are available:
+TechPulse Pro is a production-grade multi-tenant platform for aggregating, synthesizing, and delivering high-value technical intelligence.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🚀 Quick Start
 
-## React Compiler
+1. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+2. **Configure Environment**:
+   Create a `.env` file in the root directory and add your Supabase credentials (see [DEVELOPER.md](file:///home/vishnu/worklab/techpulse-web/DEVELOPER.md#5-environment-setup) for the template).
 
-## Expanding the ESLint configuration
+3. **Launch Dashboard**:
+   ```bash
+   npm run dev
+   ```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## 📖 Documentation
+
+- **[Developer Guide](file:///home/vishnu/worklab/techpulse-web/DEVELOPER.md)**: Architecture, Design System, and Database Schema.
+- **[Database Schema](file:///home/vishnu/worklab/techpulse-web/supabase_schema.sql)**: Optimal consolidated Supabase migration script.
+
+---
+Built with React, Vite, and Supabase.

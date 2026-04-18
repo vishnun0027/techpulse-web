@@ -20,7 +20,6 @@ export default function SettingsView({ session }) {
   const fileInputRef                    = useRef(null);
 
   /* ── topics ── */
-  const [topics, setTopics]             = useState({ allowed: [], blocked: [], priority: [] });
   const [allowedInput, setAllowedInput] = useState('');
   const [blockedInput, setBlockedInput] = useState('');
   const [priorityInput, setPriorityInput] = useState('');
@@ -33,8 +32,6 @@ export default function SettingsView({ session }) {
   /* ── profile ── */
   const [fullName, setFullName]         = useState(session.user.user_metadata?.full_name || '');
   const [profileMsg, setProfileMsg]     = useState(null);
-
-  useEffect(() => { fetchSources(); fetchTopics(); fetchWebhooks(); }, [session]);
 
   const flash = (setter, msg, isErr = false) => {
     setter({ text: msg, err: isErr });
@@ -54,6 +51,29 @@ export default function SettingsView({ session }) {
     const { data } = await supabase.from('rss_sources').select('*').order('name');
     if (data) setSources(data);
   };
+
+  const fetchTopics = async () => {
+    const { data } = await supabase.from('app_config').select('value').eq('key', 'topics').single();
+    if (data?.value) {
+      setAllowedInput(data.value.allowed?.join(', ') || '');
+      setBlockedInput(data.value.blocked?.join(', ') || '');
+      setPriorityInput(data.value.priority?.join(', ') || '');
+    }
+  };
+
+  const fetchWebhooks = async () => {
+    const { data } = await supabase.from('tenant_profiles').select('*').single();
+    if (data) setWebhooks({ slack: data.slack_webhook_url || '', discord: data.discord_webhook_url || '' });
+  };
+
+  useEffect(() => { 
+    const init = async () => {
+      await fetchSources(); 
+      await fetchTopics(); 
+      await fetchWebhooks();
+    };
+    init();
+  }, [session]);
 
   const addSource = async (e) => {
     e.preventDefault();
@@ -108,18 +128,8 @@ export default function SettingsView({ session }) {
       } else {
         flash(setSourceMsg, 'No new valid sources found.', true);
       }
-    } catch (err) {
+    } catch {
       flash(setSourceMsg, 'Failed to import file.', true);
-    }
-  };
-
-  const fetchTopics = async () => {
-    const { data } = await supabase.from('app_config').select('value').eq('key', 'topics').single();
-    if (data?.value) {
-      setTopics(data.value);
-      setAllowedInput(data.value.allowed?.join(', ') || '');
-      setBlockedInput(data.value.blocked?.join(', ') || '');
-      setPriorityInput(data.value.priority?.join(', ') || '');
     }
   };
 
@@ -130,11 +140,6 @@ export default function SettingsView({ session }) {
     if (data) await supabase.from('app_config').update({ value: val }).eq('key', 'topics');
     else       await supabase.from('app_config').insert({ key: 'topics', value: val, user_id: session.user.id });
     flash(setTopicMsg, 'Rules updated ✓');
-  };
-
-  const fetchWebhooks = async () => {
-    const { data } = await supabase.from('tenant_profiles').select('*').single();
-    if (data) setWebhooks({ slack: data.slack_webhook_url || '', discord: data.discord_webhook_url || '' });
   };
 
   const saveWebhooks = async () => {
@@ -224,12 +229,21 @@ export default function SettingsView({ session }) {
                           </div>
                           <div style={{ display: 'flex', gap: '0.25rem' }}>
                             <button onClick={() => startEdit(s)} className="secondary" style={{ padding: '0.4rem' }}><Pencil size={14} /></button>
-                            <button onClick={() => deleteSource(s.id)} className="secondary" style={{ padding: '0.4rem' }}><Trash2 size={14} color="var(--semantic-danger)" /></button>
+                            <button onClick={() => deleteSource(s.id)} className="secondary danger" style={{ padding: '0.4rem' }}><Trash2 size={14} /></button>
                           </div>
                         </div>
                       )}
                     </div>
                   ))}
+                  {sources.length === 0 && (
+                    <div className="glass-panel empty-state" style={{ gridColumn: '1 / -1', padding: '3rem' }}>
+                      <Rss size={48} className="empty-state-icon" />
+                      <div>
+                        <p style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No Sources Configured</p>
+                        <p style={{ fontSize: '0.85rem' }}>Add your first RSS feed or perform a bulk import above.</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -303,7 +317,7 @@ export default function SettingsView({ session }) {
                   </div>
                 </div>
 
-                <div className="glass-panel" style={{ padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', border: '1px solid var(--accent)' }}>
+                <div className="glass-panel" style={{ padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', borderLeft: '4px solid var(--accent)' }}>
                   <Info size={18} color="var(--accent)" />
                   <span style={{ fontSize: '0.85rem' }}>The background engine automatically sends digests to both enabled channels every hour.</span>
                   <button onClick={saveWebhooks} style={{ marginLeft: 'auto', padding: '0.5rem 1.5rem' }}>Save Endpoints</button>
@@ -359,7 +373,8 @@ export default function SettingsView({ session }) {
 
 /* ─── internal components ─── */
 
-function NavButton({ active, icon: Icon, label, onClick }) {
+function NavButton({ active, icon, label, onClick }) {
+  const Icon = icon;
   return (
     <button
       onClick={onClick}

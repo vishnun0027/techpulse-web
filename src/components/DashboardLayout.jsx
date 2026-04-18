@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { supabase } from '../supabase';
-import { LayoutDashboard, Settings, LogOut, Activity, ChevronDown, User } from 'lucide-react';
+import { LayoutDashboard, Settings, LogOut, Activity, ChevronDown, User, Shield } from 'lucide-react';
 
 export default function DashboardLayout({ session }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const menuRef = useRef(null);
 
   const handleLogout = async () => {
@@ -21,6 +22,29 @@ export default function DashboardLayout({ session }) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Check for admin privileges
+  useEffect(() => {
+    async function checkAdmin() {
+      // 1. Developer Bypass
+      const adminEmail = import.meta.env.VITE_ADMIN_EMAIL;
+      if (adminEmail && session.user.email === adminEmail) {
+        setIsAdmin(true);
+        return;
+      }
+
+      // 2. Database Check
+      try {
+        const { data, error } = await supabase.from('tenant_profiles').select('is_admin').eq('user_id', session.user.id).single();
+        if (error) throw error;
+        setIsAdmin(!!data?.is_admin);
+      } catch (err) {
+        console.warn("RBAC check skipped or failed:", err?.message || err);
+        setIsAdmin(false);
+      }
+    }
+    checkAdmin();
+  }, [session]);
 
   return (
     <div className="app-container">
@@ -45,6 +69,16 @@ export default function DashboardLayout({ session }) {
             >
               <Settings size={18} /> Settings
             </NavLink>
+
+            {isAdmin && (
+              <NavLink 
+                to="/admin" 
+                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                style={{ color: 'var(--accent)' }}
+              >
+                <Shield size={18} /> Admin
+              </NavLink>
+            )}
           </div>
         </div>
 

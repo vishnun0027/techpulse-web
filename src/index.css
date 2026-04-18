@@ -47,12 +47,21 @@ body {
   border: 1px solid var(--card-border);
   border-radius: 12px;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: all 0.2s ease;
 }
 
-.hoverable:hover {
-  transform: translateY(-2px) scale(1.01);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15);
+.glass-panel.hoverable:hover {
+  transform: translateY(-2px);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.4);
+}
+
+.stat-card {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-left: 3px solid var(--accent);
 }
 
 /* Navbar */
@@ -213,11 +222,42 @@ button:active {
 }
 
 button.secondary {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--card-border);
+  color: var(--text-primary);
 }
+
 button.secondary:hover {
-  background: rgba(255,255,255,0.05);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+button.danger {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+button.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Empty States */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  gap: 1rem;
+}
+
+.empty-state-icon {
+  opacity: 0.3;
+  margin-bottom: 0.5rem;
 }
 
 /* Tables / Data Grids */

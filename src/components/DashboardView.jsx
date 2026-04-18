@@ -142,38 +142,38 @@ export default function DashboardView({ session }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
         
         {/* Core Stats */}
-        <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', borderLeft: '3px solid var(--accent)' }}>
-          <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Intelligience</span>
+        <div className="glass-panel stat-card">
+          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>Total Intelligence</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
             <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>{loading ? '...' : stats.collected}</span>
-            <span style={{ fontSize: '0.7rem', color: 'var(--semantic-success)' }}>+{stats.ready} new</span>
+            <span style={{ fontSize: '0.65rem', color: 'var(--semantic-success)', fontWeight: 600 }}>+{stats.ready} new</span>
           </div>
         </div>
 
-        <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', borderLeft: '3px solid var(--semantic-success)' }}>
-          <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Successfully Delivered</span>
+        <div className="glass-panel stat-card" style={{ borderLeftColor: 'var(--semantic-success)' }}>
+          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>Successfully Delivered</span>
           <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>{loading ? '...' : stats.delivered}</span>
         </div>
 
         {/* New Matrices */}
-        <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
-          <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🛡️ Noise Reduction</span>
+        <div className="glass-panel stat-card" style={{ borderLeftColor: 'var(--accent)', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
+          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>🛡️ Noise Reduction</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
             <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)' }}>{loading ? '...' : stats.noiseRatio}%</span>
             <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>filtered</span>
           </div>
         </div>
 
-        <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🧠 Insight Quality</span>
+        <div className="glass-panel stat-card" style={{ borderLeftColor: 'var(--semantic-warning)' }}>
+          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>🧠 Insight Quality</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
             <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--semantic-warning)' }}>{loading ? '...' : stats.avgScore}</span>
             <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>/ 5.0</span>
           </div>
         </div>
 
-        <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>📡 Source Health</span>
+        <div className="glass-panel stat-card" style={{ borderLeftColor: stats.sourceHealth > 90 ? 'var(--semantic-success)' : 'var(--semantic-warning)' }}>
+          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>📡 Source Health</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
             <span style={{ fontSize: '1.25rem', fontWeight: 700, color: stats.sourceHealth > 90 ? 'var(--semantic-success)' : 'var(--semantic-warning)' }}>{loading ? '...' : stats.sourceHealth}%</span>
             <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>online</span>
@@ -336,14 +336,16 @@ export default function DashboardView({ session }) {
               ))}
               {articles.length === 0 && !loading && (
                 <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
-                    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', color: 'var(--text-muted)' }}>
-                      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>
-                      </svg>
+                  <td colSpan="5">
+                    <div className="empty-state">
+                      <div className="empty-state-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                      </div>
                       <div>
-                        <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>No intelligence yet</p>
-                        <p style={{ fontSize: '0.875rem' }}>Add some RSS sources in settings to get started.</p>
+                        <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>No intelligence found</p>
+                        <p style={{ fontSize: '0.875rem' }}>Add RSS sources in settings to begin collection.</p>
                       </div>
                     </div>
                   </td>
@@ -358,38 +360,18 @@ export default function DashboardView({ session }) {
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button 
+              className="secondary"
               onClick={() => setPage(p => Math.max(1, p - 1))} 
               disabled={page === 1}
-              style={{
-                padding: '0.4rem 0.8rem',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid var(--card-border)',
-                borderRadius: '6px',
-                cursor: page === 1 ? 'not-allowed' : 'pointer',
-                color: page === 1 ? 'var(--text-muted)' : 'var(--text-primary)',
-                transition: 'all 0.2s ease',
-                width: 'auto'
-              }}
-              onMouseOver={(e) => { if(page !== 1) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-              onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+              style={{ width: 'auto', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
             >
               Previous
             </button>
             <button 
+              className="secondary"
               onClick={() => setPage(p => p + 1)} 
               disabled={page * PAGE_SIZE >= filteredCount}
-              style={{
-                padding: '0.4rem 0.8rem',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid var(--card-border)',
-                borderRadius: '6px',
-                cursor: page * PAGE_SIZE >= filteredCount ? 'not-allowed' : 'pointer',
-                color: page * PAGE_SIZE >= filteredCount ? 'var(--text-muted)' : 'var(--text-primary)',
-                transition: 'all 0.2s ease',
-                width: 'auto'
-              }}
-              onMouseOver={(e) => { if(page * PAGE_SIZE < filteredCount) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-              onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+              style={{ width: 'auto', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
             >
               Next
             </button>
