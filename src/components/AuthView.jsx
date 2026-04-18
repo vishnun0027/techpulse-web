@@ -3,6 +3,7 @@ import { supabase } from '../supabase';
 
 export default function AuthView() {
   const [loading, setLoading] = useState(false);
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
@@ -15,7 +16,13 @@ export default function AuthView() {
     
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({ 
+          email, 
+          password,
+          options: {
+            data: { full_name: fullName.trim() }
+          }
+        });
         if (error) throw error;
         alert('Account created! You can now log in.');
         setIsSignUp(false);
@@ -45,6 +52,19 @@ export default function AuthView() {
         )}
 
         <form onSubmit={handleAuth}>
+          {isSignUp && (
+            <div style={{ animation: 'fadeIn 0.3s ease' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Full Name</label>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+                placeholder="e.g. Vishnu Vardhan"
+                style={{ marginBottom: '1rem' }}
+              />
+            </div>
+          )}
           <div>
             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Email Endpoint</label>
             <input

@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { 
   Trash2, Plus, Pencil, Check, X, Upload, 
   Rss, Brain, Webhook, ChevronRight, 
-  Activity, Globe, Info, Save
+  Activity, Globe, Info, Save, User
 } from 'lucide-react';
 
 export default function SettingsView({ session }) {
@@ -30,11 +30,24 @@ export default function SettingsView({ session }) {
   const [webhooks, setWebhooks]         = useState({ slack: '', discord: '' });
   const [webhookMsg, setWebhookMsg]     = useState(null);
 
+  /* ── profile ── */
+  const [fullName, setFullName]         = useState(session.user.user_metadata?.full_name || '');
+  const [profileMsg, setProfileMsg]     = useState(null);
+
   useEffect(() => { fetchSources(); fetchTopics(); fetchWebhooks(); }, [session]);
 
   const flash = (setter, msg, isErr = false) => {
     setter({ text: msg, err: isErr });
     setTimeout(() => setter(null), 3000);
+  };
+
+  const saveProfile = async (e) => {
+    e.preventDefault();
+    const { error } = await supabase.auth.updateUser({
+      data: { full_name: fullName.trim() }
+    });
+    if (error) flash(setProfileMsg, 'Error: ' + error.message, true);
+    else flash(setProfileMsg, 'Profile updated ✓');
   };
 
   const fetchSources = async () => {
@@ -146,6 +159,7 @@ export default function SettingsView({ session }) {
           <NavButton active={activeTab === 'sources'} onClick={() => setActiveTab('sources')} icon={Rss} label="RSS Sources" />
           <NavButton active={activeTab === 'engine'} onClick={() => setActiveTab('engine')} icon={Brain} label="Intelligence Rules" />
           <NavButton active={activeTab === 'delivery'} onClick={() => setActiveTab('delivery')} icon={Webhook} label="Delivery Channels" />
+          <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={User} label="Account Profile" />
           <div style={{ marginTop: 'auto', padding: '1rem', borderTop: '1px solid var(--card-border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
               <Activity size={14} />
@@ -161,6 +175,7 @@ export default function SettingsView({ session }) {
               {activeTab === 'sources' && 'RSS Feeds'}
               {activeTab === 'engine' && 'Intelligence Rules'}
               {activeTab === 'delivery' && 'Delivery Webhooks'}
+              {activeTab === 'profile' && 'Account Profile'}
             </h2>
             {activeTab === 'sources' && (
               <div style={{ display: 'flex', gap: '0.75rem' }}>
@@ -292,6 +307,46 @@ export default function SettingsView({ session }) {
                   <Info size={18} color="var(--accent)" />
                   <span style={{ fontSize: '0.85rem' }}>The background engine automatically sends digests to both enabled channels every hour.</span>
                   <button onClick={saveWebhooks} style={{ marginLeft: 'auto', padding: '0.5rem 1.5rem' }}>Save Endpoints</button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'profile' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                {profileMsg && <Alert text={profileMsg.text} isErr={profileMsg.err} />}
+                
+                <div className="glass-panel" style={{ padding: '2rem', maxWidth: '600px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
+                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent) 0%, #3b82f6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <User size={32} color="white" />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Personal Identity</h3>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>This name will be displayed across your dashboard.</p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <div>
+                      <label className="field-label">Full Name</label>
+                      <input 
+                        value={fullName} 
+                        onChange={e => setFullName(e.target.value)} 
+                        placeholder="e.g. Vishnu Vardhan" 
+                        style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--card-border)' }}
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label">Email Address</label>
+                      <input 
+                        value={session.user.email} 
+                        disabled 
+                        style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--card-border)', cursor: 'not-allowed', color: 'var(--text-muted)' }} 
+                      />
+                      <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Email cannot be changed currently.</p>
+                    </div>
+                    <button type="submit" style={{ alignSelf: 'flex-start', padding: '0.75rem 2rem' }}>Save Profile</button>
+                  </form>
                 </div>
               </div>
             )}
