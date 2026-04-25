@@ -6,6 +6,9 @@ import DashboardLayout from './components/DashboardLayout';
 import DashboardView from './components/DashboardView';
 import SettingsView from './components/SettingsView';
 import AdminView from './components/AdminView';
+import MorningBriefView from './components/MorningBriefView';
+import SemanticSearchView from './components/SemanticSearchView';
+import RadarView from './components/RadarView';
 import './index.css';
 
 function App() {
@@ -42,13 +45,7 @@ function App() {
         return;
       }
 
-      // Admin email bypass — always has access
-      const adminEmail = import.meta.env.VITE_ADMIN_EMAIL;
-      if (adminEmail && session.user.email === adminEmail) {
-        setHasProfile(true);
-        return;
-      }
-
+      // NO BYPASS: Strictly check database for profile
       const { data } = await supabase
         .from('tenant_profiles')
         .select('user_id')
@@ -62,40 +59,49 @@ function App() {
 
   if (!supabase) {
     return (
-      <div className="auth-wrapper">
-        <div className="glass-panel" style={{ padding: '2.5rem', textAlign: 'center', border: '1px solid var(--semantic-danger)' }}>
-          <h1 style={{ color: 'var(--semantic-danger)', fontSize: '1.5rem', marginBottom: '1rem' }}>Configuration Error</h1>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>Missing project credentials in <code>.env</code> file.</p>
-          <code style={{ display: 'block', padding: '1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', fontSize: '0.8rem' }}>VITE_SUPABASE_URL is undefined</code>
+      <div className="auth-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-color)' }}>
+        <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', border: '1px solid var(--semantic-danger)', maxWidth: '500px' }}>
+          <h1 style={{ color: 'var(--semantic-danger)', fontSize: '1.75rem', fontWeight: 900, marginBottom: '1rem' }}>Configuration Error</h1>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', lineHeight: 1.6 }}>System credentials for TechPulse Intelligence remain unprovisioned. Please verify your environment configuration.</p>
+          <code style={{ display: 'block', padding: '1rem', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', fontSize: '0.8rem', color: 'var(--semantic-danger)', border: '1px solid hsla(350, 89%, 60%, 0.1)' }}>VITE_SUPABASE_URL IS UNDEFINED</code>
         </div>
       </div>
     );
   }
 
   if (loading) {
-    return <div className="auth-wrapper">Loading TechPulse AI...</div>;
+    return (
+      <div className="auth-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-color)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ display: 'inline-flex', padding: '12px', background: 'var(--accent-glow)', borderRadius: '16px', marginBottom: '1.5rem', border: '1px solid var(--accent-glow)' }}>
+            <div className="animate-spin" style={{ width: '24px', height: '24px', border: '3px solid var(--accent)', borderTopColor: 'transparent', borderRadius: '50%' }} />
+          </div>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '0.02em' }}>Initializing Intelligence</h2>
+        </div>
+      </div>
+    );
   }
 
   // User is logged in but has no tenant profile — block access
   if (session && hasProfile === false) {
     return (
-      <div className="auth-wrapper">
-        <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', maxWidth: '440px' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '1.5rem', opacity: 0.8 }}>🔒</div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '0.75rem' }}>Access Restricted</h2>
-          <p style={{ color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '1rem' }}>
-            The account <strong style={{ color: 'var(--text-primary)' }}>{session.user.email}</strong> is not authorized for this workspace.
+      <div className="auth-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-color)' }}>
+        <div className="glass-panel" style={{ padding: '3.5rem', textAlign: 'center', maxWidth: '480px' }}>
+          <div style={{ fontSize: '3.5rem', marginBottom: '1.5rem', filter: 'drop-shadow(0 0 20px hsla(350, 89%, 60%, 0.2))' }}>🔒</div>
+          <h2 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: '0.75rem' }}>Access Restricted</h2>
+          <p style={{ color: 'var(--text-secondary)', lineHeight: '1.75', marginBottom: '2rem', fontSize: '1rem' }}>
+            The node <strong style={{ color: 'white' }}>{session.user.email}</strong> is not authenticated for this operational workspace.
           </p>
-          <div style={{ padding: '1rem', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.1)', marginBottom: '2rem' }}>
-            <p style={{ color: 'var(--accent)', fontSize: '0.85rem', fontWeight: 600 }}>System Note:</p>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Self-serve approval is pending or account has been deactivated by an admin.</p>
+          <div style={{ padding: '1.25rem', background: 'var(--semantic-warning-bg)', borderRadius: '16px', border: '1px solid hsla(38, 92%, 50%, 0.1)', marginBottom: '2.5rem', textAlign: 'left' }}>
+            <p style={{ color: 'var(--semantic-warning)', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.4rem' }}>System Status</p>
+            <p style={{ color: 'var(--text-primary)', fontSize: '0.85rem', lineHeight: 1.5, fontWeight: 500 }}>Self-serve approval sequence is pending or the identity has been quarantined by an administrator.</p>
           </div>
           <button
             className="secondary"
             onClick={() => supabase.auth.signOut()}
-            style={{ width: '100%', padding: '0.75rem' }}
+            style={{ width: '100%', padding: '1rem', borderRadius: '12px', fontWeight: 700 }}
           >
-            Sign Out & Switch Account
+            Sign Out & Switch Identity
           </button>
         </div>
       </div>
@@ -104,7 +110,16 @@ function App() {
 
   // Still checking profile
   if (session && hasProfile === null) {
-    return <div className="auth-wrapper">Verifying access...</div>;
+    return (
+      <div className="auth-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-color)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ display: 'inline-flex', padding: '12px', background: 'var(--accent-glow)', borderRadius: '16px', marginBottom: '1.5rem', border: '1px solid var(--accent-glow)' }}>
+            <div className="animate-pulse" style={{ width: '24px', height: '24px', background: 'var(--accent)', borderRadius: '5px' }} />
+          </div>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '0.02em' }}>Authenticating Node</h2>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -120,6 +135,9 @@ function App() {
             <Route path="/" element={<DashboardView session={session} />} />
             <Route path="/settings" element={<SettingsView session={session} />} />
             <Route path="/admin" element={<AdminView session={session} />} />
+            <Route path="/brief" element={<MorningBriefView session={session} />} />
+            <Route path="/search" element={<SemanticSearchView session={session} />} />
+            <Route path="/radar" element={<RadarView session={session} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         )}

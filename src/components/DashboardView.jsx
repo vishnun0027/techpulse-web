@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { formatDistanceToNow } from 'date-fns';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Database, Send, Radio, ShieldCheck, Zap, Activity as ActivityIcon, Search as SearchIcon, Filter } from 'lucide-react';
 
 export default function DashboardView({ session }) {
   const [stats, setStats] = useState({ 
@@ -18,6 +19,9 @@ export default function DashboardView({ session }) {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+
+  // feedback: { [article_id]: 'helpful' | 'skip' | 'saving' }
+  const [feedback, setFeedback] = useState({});
   const [filteredCount, setFilteredCount] = useState(0);
 
   const [filters, setFilters] = useState({
@@ -133,61 +137,107 @@ export default function DashboardView({ session }) {
     fetchData();
   }, [session, page, debouncedFilters]);
 
+  // ── Feedback Handlers ────────────────────────────────────────────────────
+
+  async function submitFeedback(article, isHelpful) {
+    if (!session?.user?.id || feedback[article.id]) return;
+    setFeedback(f => ({ ...f, [article.id]: 'saving' }));
+    try {
+      await supabase.from('user_feedback').insert({
+        user_id:    session.user.id,
+        article_id: article.id,
+        is_helpful: isHelpful,
+      });
+      setFeedback(f => ({ ...f, [article.id]: isHelpful ? 'helpful' : 'skip' }));
+    } catch (err) {
+      console.error('Feedback error:', err);
+      setFeedback(f => ({ ...f, [article.id]: null }));
+    }
+  }
+
+  async function trackArticleClick(article) {
+    // Increment articles_clicked in source_health so quality_score learns
+    // which sources produce content users actually read.
+    if (!article.source_id || !session?.user?.id) return;
+    await supabase.rpc('increment_source_click', {
+      p_source_id: article.source_id,
+      p_user_id:   session.user.id,
+    }).catch(() => {});  // fire-and-forget, never block the user
+  }
+
 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       
       {/* HIGH DENSITY OVERVIEW ROW */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
         
         {/* Core Stats */}
-        <div className="glass-panel stat-card">
-          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>Total Intelligence</span>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>{loading ? '...' : stats.collected}</span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--semantic-success)', fontWeight: 600 }}>+{stats.ready} new</span>
+        <div className="glass-panel stat-card" style={{ borderLeftColor: 'var(--accent)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <span className="field-label" style={{ fontSize: '0.65rem' }}>Total Intelligence</span>
+            <Database size={16} color="var(--accent)" opacity={0.5} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.75rem', fontWeight: 800 }}>{loading ? '...' : stats.collected.toLocaleString()}</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--semantic-success)', fontWeight: 700, background: 'var(--semantic-success-bg)', padding: '2px 6px', borderRadius: '4px' }}>
+              +{stats.ready} new
+            </span>
           </div>
         </div>
 
         <div className="glass-panel stat-card" style={{ borderLeftColor: 'var(--semantic-success)' }}>
-          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>Successfully Delivered</span>
-          <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>{loading ? '...' : stats.delivered}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <span className="field-label" style={{ fontSize: '0.65rem' }}>Delivered Insights</span>
+            <Send size={16} color="var(--semantic-success)" opacity={0.5} />
+          </div>
+          <span style={{ fontSize: '1.75rem', fontWeight: 800 }}>{loading ? '...' : stats.delivered.toLocaleString()}</span>
         </div>
 
-        {/* New Matrices */}
-        <div className="glass-panel stat-card" style={{ borderLeftColor: 'var(--accent)', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
-          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>🛡️ Noise Reduction</span>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
-            <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)' }}>{loading ? '...' : stats.noiseRatio}%</span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>filtered</span>
+        <div className="glass-panel stat-card" style={{ borderLeftColor: 'var(--accent)', background: 'linear-gradient(135deg, hsla(217, 91%, 60%, 0.05) 0%, transparent 100%)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <span className="field-label" style={{ fontSize: '0.65rem' }}>Noise Reduction</span>
+            <ShieldCheck size={16} color="var(--accent)" opacity={0.5} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+            <span style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--accent)' }}>{loading ? '...' : stats.noiseRatio}%</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>FILTERED</span>
           </div>
         </div>
 
         <div className="glass-panel stat-card" style={{ borderLeftColor: 'var(--semantic-warning)' }}>
-          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>🧠 Insight Quality</span>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
-            <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--semantic-warning)' }}>{loading ? '...' : stats.avgScore}</span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>/ 5.0</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <span className="field-label" style={{ fontSize: '0.65rem' }}>Avg Insight Score</span>
+            <Zap size={16} color="var(--semantic-warning)" opacity={0.5} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+            <span style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--semantic-warning)' }}>{loading ? '...' : stats.avgScore}</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>/ 5.0</span>
           </div>
         </div>
 
         <div className="glass-panel stat-card" style={{ borderLeftColor: stats.sourceHealth > 90 ? 'var(--semantic-success)' : 'var(--semantic-warning)' }}>
-          <span className="field-label" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>📡 Source Health</span>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
-            <span style={{ fontSize: '1.25rem', fontWeight: 700, color: stats.sourceHealth > 90 ? 'var(--semantic-success)' : 'var(--semantic-warning)' }}>{loading ? '...' : stats.sourceHealth}%</span>
-            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>online</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <span className="field-label" style={{ fontSize: '0.65rem' }}>Pipeline Health</span>
+            <Radio size={16} color={stats.sourceHealth > 90 ? 'var(--semantic-success)' : 'var(--semantic-warning)'} opacity={0.5} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+            <span style={{ fontSize: '1.75rem', fontWeight: 800, color: stats.sourceHealth > 90 ? 'var(--semantic-success)' : 'var(--semantic-warning)' }}>{loading ? '...' : stats.sourceHealth}%</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>OPERATIONAL</span>
           </div>
         </div>
       </div>
 
       {/* COMPACT CHART & TRENDS */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
-        <div className="glass-panel" style={{ padding: '1rem 1.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 10px var(--accent)' }} />
-              <h2 style={{ fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Delivery Velocity</h2>
+        <div className="glass-panel" style={{ padding: '1.5rem 2rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ padding: '8px', background: 'var(--accent-glow)', borderRadius: '10px' }}>
+                <ActivityIcon size={18} className="text-accent" />
+              </div>
+              <h2 style={{ fontSize: '1rem', fontWeight: 700, letterSpacing: '0.02em' }}>DELIVERY VELOCITY</h2>
             </div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.03)', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid var(--card-border)' }}>
               7D Trend
@@ -227,13 +277,18 @@ export default function DashboardView({ session }) {
 
       <div className="glass-panel" style={{ overflow: 'hidden' }}>
         <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Recent Intelligence</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ padding: '8px', background: 'hsla(0, 0%, 100%, 0.03)', borderRadius: '10px', border: '1px solid var(--card-border)' }}>
+              <SearchIcon size={18} className="text-secondary" />
+            </div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Recent Intelligence</h2>
+          </div>
           <button 
             className="secondary" 
-            style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+            style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', borderRadius: '10px' }}
             onClick={() => setFilters({ title: '', source: '', minScore: '', status: 'all', timeRange: 'all' })}
           >
-            Clear Filters
+            <Filter size={14} style={{ marginRight: '0.5rem' }} /> Clear Filters
           </button>
         </div>
 
@@ -307,36 +362,101 @@ export default function DashboardView({ session }) {
                 <th>Title</th>
                 <th>Score</th>
                 <th>Status</th>
+                <th style={{ textAlign: 'center' }}>Feedback</th>
               </tr>
             </thead>
             <tbody>
-              {articles.map((a) => (
-                <tr key={a.source_url}>
-                  <td style={{ whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
-                    {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}
-                  </td>
-                  <td>{a.source}</td>
-                  <td style={{ maxWidth: '400px' }}>
-                    <a href={a.source_url} target="_blank" rel="noreferrer" className="article-title-link">
-                      {a.title}
-                    </a>
-                  </td>
-                  <td>
-                    <span className={`badge ${a.score >= 4 ? 'success' : 'info'}`}>
-                      ⭐ {a.score.toFixed(1)}
-                    </span>
-                  </td>
-                  <td>
-                    {a.is_delivered ? 
-                      <span className="badge success">Delivered</span> : 
-                      <span className="badge warning">Pending</span>
-                    }
-                  </td>
-                </tr>
-              ))}
+              {articles.map((a) => {
+                const fb = feedback[a.id];
+                return (
+                  <tr key={a.source_url}>
+                    <td style={{ whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+                      {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}
+                    </td>
+                    <td>{a.source}</td>
+                    <td style={{ maxWidth: '400px' }}>
+                      <a
+                        href={a.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="article-title-link"
+                        onClick={() => trackArticleClick(a)}
+                      >
+                        {a.title}
+                      </a>
+                    </td>
+                    <td>
+                      <span className={`badge ${a.score >= 4 ? 'success' : 'info'}`}>
+                        ⭐ {a.score.toFixed(1)}
+                      </span>
+                    </td>
+                    <td>
+                      {a.is_delivered ?
+                        <span className="badge success">Delivered</span> :
+                        <span className="badge warning">Pending</span>
+                      }
+                    </td>
+                    <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {fb === 'saving' && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>saving…</span>
+                      )}
+                      {fb === 'helpful' && (
+                        <span className="badge success" style={{ fontSize: '0.7rem' }}>👍 Helpful</span>
+                      )}
+                      {fb === 'skip' && (
+                        <span className="badge" style={{ fontSize: '0.7rem', opacity: 0.6 }}>👎 Skipped</span>
+                      )}
+                      {!fb && (
+                        <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center' }}>
+                          <button
+                            id={`feedback-helpful-${a.id}`}
+                            onClick={() => submitFeedback(a, true)}
+                            title="Mark as helpful — trains the ranker"
+                            style={{
+                              background: 'rgba(34,197,94,0.1)',
+                              border: '1px solid rgba(34,197,94,0.3)',
+                              borderRadius: '6px',
+                              color: '#22c55e',
+                              padding: '0.25rem 0.5rem',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              transition: 'all 0.15s ease',
+                              width: 'auto',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(34,197,94,0.2)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'rgba(34,197,94,0.1)'}
+                          >
+                            👍
+                          </button>
+                          <button
+                            id={`feedback-skip-${a.id}`}
+                            onClick={() => submitFeedback(a, false)}
+                            title="Not relevant — trains the ranker"
+                            style={{
+                              background: 'rgba(239,68,68,0.08)',
+                              border: '1px solid rgba(239,68,68,0.2)',
+                              borderRadius: '6px',
+                              color: '#ef4444',
+                              padding: '0.25rem 0.5rem',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              transition: 'all 0.15s ease',
+                              width: 'auto',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.15)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+                          >
+                            👎
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {articles.length === 0 && !loading && (
                 <tr>
-                  <td colSpan="5">
+                  <td colSpan="6">
                     <div className="empty-state">
                       <div className="empty-state-icon">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

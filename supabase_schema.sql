@@ -15,8 +15,9 @@ $$ language 'plpgsql';
 -- Tenant Profiles
 CREATE TABLE IF NOT EXISTS tenant_profiles (
     user_id             UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email               TEXT,
     full_name           TEXT,
-    is_admin            BOOLEAN DEFAULT FALSE,  -- ✅ Kept from Restoration fix
+    is_admin            BOOLEAN DEFAULT FALSE,
     slack_webhook_url   TEXT,
     discord_webhook_url TEXT,
     api_token           TEXT,
@@ -143,9 +144,10 @@ CREATE POLICY "Users can view own telemetry" ON telemetry FOR SELECT USING (auth
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.tenant_profiles (user_id, full_name, is_admin)
+  INSERT INTO public.tenant_profiles (user_id, email, full_name, is_admin)
   VALUES (
     NEW.id, 
+    NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
     FALSE
   );

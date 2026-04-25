@@ -3,7 +3,7 @@ import { supabase, supabaseAdmin } from '../supabase';
 import { 
   Users, Activity, Shield, Rss, 
   ArrowUpRight, AlertCircle, CheckCircle2,
-  Clock, Server, ShieldCheck, ShieldOff, Trash2, UserPlus, X, Flame
+  Clock, Server, ShieldCheck, ShieldOff, Trash2, UserPlus, X, Mail
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -30,23 +30,17 @@ export default function AdminView({ session }) {
       setLoading(true);
       setError(null);
       
-      // 1. Authorization check (email bypass)
-      const adminEmail = import.meta.env.VITE_ADMIN_EMAIL;
-      const isDevAdmin = adminEmail && session.user.email === adminEmail;
+      // 1. Authorization check (Strict Database Flag)
+      const { data: profile, error: profileError } = await supabase
+        .from('tenant_profiles')
+        .select('is_admin')
+        .eq('user_id', session.user.id)
+        .single();
       
-      if (!isDevAdmin) {
-        // Also check DB for is_admin flag
-        const { data: profile } = await supabase
-          .from('tenant_profiles')
-          .select('is_admin')
-          .eq('user_id', session.user.id)
-          .single();
-        
-        if (!profile?.is_admin) {
-          setIsAuthorized(false);
-          setLoading(false);
-          return;
-        }
+      if (profileError || !profile?.is_admin) {
+        setIsAuthorized(false);
+        setLoading(false);
+        return;
       }
 
       // 2. Check if admin client is available
@@ -140,14 +134,23 @@ export default function AdminView({ session }) {
     setActionLoading(null);
   }
 
-  // Remove user
+  // Remove user (Full Deletion)
   async function removeUser(userId, name) {
     if (userId === session.user.id) return; // Can't remove yourself
-    if (!confirm(`Remove tenant "${name || 'Anonymous'}"? This deletes their profile.`)) return;
+    if (!confirm(`\u26a0\ufe0f PERMANENT DELETION\n\nAre you sure you want to delete "${name || 'Anonymous'}"?\nThis will permanently destroy their account and ALL associated data (Profiles, Articles, RSS Sources).`)) return;
+    
     setActionLoading(userId);
-    await supabaseAdmin.from('tenant_profiles').delete().eq('user_id', userId);
-    await refreshTenants();
-    setActionLoading(null);
+    try {
+      // Deleting from auth.users triggers ON DELETE CASCADE in all related tables
+      const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      if (error) throw error;
+      await refreshTenants();
+    } catch (err) {
+      console.error("Deletion Error:", err);
+      alert("Error deleting user: " + (err.message || String(err)));
+    } finally {
+      setActionLoading(null);
+    }
   }
 
   // Add user
@@ -165,6 +168,7 @@ export default function AdminView({ session }) {
     }
     await supabaseAdmin.from('tenant_profiles').upsert({
       user_id: found.id,
+      email: found.email,
       full_name: newUserName.trim() || found.user_metadata?.full_name || newUserEmail.split('@')[0],
       is_admin: false
     });
@@ -173,60 +177,6 @@ export default function AdminView({ session }) {
     setShowAddUser(false);
     await refreshTenants();
     setActionLoading(null);
-  }
-
-  // Purge all non-admin users and their data + orphaned records
-  async function purgeNonAdmins() {
-    const nonAdmins = tenants.filter(t => !t.is_admin);
-    const hasOrphans = globalStats.totalArticles > 0 || globalStats.totalSources > 0;
-    
-    if (nonAdmins.length === 0 && !hasOrphans) {
-      alert('Nothing to clean up.');
-      return;
-    }
-
-    const msg = [
-      `\u26a0\ufe0f DESTRUCTIVE ACTION\n`,
-      nonAdmins.length > 0 ? `• Delete ${nonAdmins.length} non-admin user(s) + their data + auth accounts` : '',
-      `• Delete all orphaned articles, RSS sources, and telemetry (NULL user_id)`,
-      `• Keep only admin accounts and their data`,
-      `\nThis cannot be undone. Continue?`
-    ].filter(Boolean).join('\n');
-
-    if (!confirm(msg)) return;
-    
-    setActionLoading('purge');
-    
-    // 1. Delete non-admin users and their data
-    for (const user of nonAdmins) {
-      await supabaseAdmin.from('articles').delete().eq('user_id', user.user_id);
-      await supabaseAdmin.from('rss_sources').delete().eq('user_id', user.user_id);
-      await supabaseAdmin.from('telemetry').delete().eq('user_id', user.user_id);
-      await supabaseAdmin.from('app_config').delete().eq('user_id', user.user_id);
-      await supabaseAdmin.from('tenant_profiles').delete().eq('user_id', user.user_id);
-      await supabaseAdmin.auth.admin.deleteUser(user.user_id);
-    }
-
-    // 2. Delete orphaned data (NULL user_id — leftover from pre-multi-tenancy)
-    await supabaseAdmin.from('articles').delete().is('user_id', null);
-    await supabaseAdmin.from('rss_sources').delete().is('user_id', null);
-    await supabaseAdmin.from('telemetry').delete().is('user_id', null);
-    // app_config has user_id in PK, so NULL is impossible there
-
-    await refreshTenants();
-    // Re-fetch stats
-    const [resA, resS] = await Promise.all([
-      supabaseAdmin.from('articles').select('*', { count: 'exact', head: true }),
-      supabaseAdmin.from('rss_sources').select('*', { count: 'exact', head: true })
-    ]);
-    setGlobalStats(prev => ({
-      ...prev,
-      totalArticles: resA.count || 0,
-      totalSources: resS.count || 0
-    }));
-
-    setActionLoading(null);
-    alert(`\u2705 Cleanup complete!\n• ${nonAdmins.length} non-admin user(s) removed\n• All orphaned data purged`);
   }
 
   if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading Administrative Console...</div>;
@@ -274,15 +224,6 @@ export default function AdminView({ session }) {
             <Server size={14} color="var(--semantic-success)" />
             <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6ee7b7' }}>Pipeline Online</span>
           </div>
-          <button
-            onClick={purgeNonAdmins}
-            disabled={actionLoading === 'purge'}
-            className="danger"
-            style={{ fontSize: '0.8rem', padding: '0.5rem 1rem' }}
-          >
-            <Flame size={14} />
-            {actionLoading === 'purge' ? 'Purging...' : 'Purge All Non-Admins'}
-          </button>
         </div>
       </div>
 
@@ -398,6 +339,7 @@ export default function AdminView({ session }) {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--card-border)', background: 'rgba(255,255,255,0.02)' }}>
                 <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tenant/User</th>
+                <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Email</th>
                 <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
                 <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Role</th>
                 <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Actions</th>
@@ -416,6 +358,12 @@ export default function AdminView({ session }) {
                       </div>
                     </td>
                     <td style={{ padding: '1rem 1.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                        <Mail size={12} style={{ opacity: 0.6 }} />
+                        {t.email || <em style={{ opacity: 0.5 }}>Not Synced</em>}
+                      </div>
+                    </td>
+                    <td style={{ padding: '1rem 1.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6ee7b7' }} />
                         <span style={{ fontSize: '0.85rem' }}>Active</span>
@@ -424,11 +372,11 @@ export default function AdminView({ session }) {
                     <td style={{ padding: '1rem 1.5rem' }}>
                       <span style={{
                         fontSize: '0.75rem', fontWeight: 600, padding: '0.3rem 0.6rem', borderRadius: '6px',
-                        background: (t.is_admin || (isSelf && (import.meta.env.VITE_ADMIN_EMAIL && session.user.email === import.meta.env.VITE_ADMIN_EMAIL))) ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.03)',
-                        border: '1px solid ' + ((t.is_admin || (isSelf && (import.meta.env.VITE_ADMIN_EMAIL && session.user.email === import.meta.env.VITE_ADMIN_EMAIL))) ? 'rgba(16,185,129,0.2)' : 'var(--card-border)'),
-                        color: (t.is_admin || (isSelf && (import.meta.env.VITE_ADMIN_EMAIL && session.user.email === import.meta.env.VITE_ADMIN_EMAIL))) ? '#6ee7b7' : 'var(--text-secondary)'
+                        background: t.is_admin ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.03)',
+                        border: '1px solid ' + (t.is_admin ? 'rgba(16,185,129,0.2)' : 'var(--card-border)'),
+                        color: t.is_admin ? '#6ee7b7' : 'var(--text-secondary)'
                       }}>
-                        {(t.is_admin || (isSelf && (import.meta.env.VITE_ADMIN_EMAIL && session.user.email === import.meta.env.VITE_ADMIN_EMAIL))) ? '🛡️ Admin' : 'Standard'}
+                        {t.is_admin ? '🛡️ Admin' : 'Standard'}
                       </span>
                     </td>
                     <td style={{ padding: '1rem 1.5rem' }}>
@@ -471,7 +419,7 @@ export default function AdminView({ session }) {
               })}
               {tenants.length === 0 && (
                 <tr>
-                  <td colSpan="4" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  <td colSpan="5" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                     No tenant profiles found.
                   </td>
                 </tr>
