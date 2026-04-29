@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 import { supabase, supabaseAdmin } from '../supabase';
+import { useUserProfile } from '../context/UserProfileContext';
 import { 
   Users, Activity, Shield, Rss, 
   ArrowUpRight, AlertCircle, CheckCircle2,
-  Clock, Server, ShieldCheck, ShieldOff, Trash2, UserPlus, X, Mail
+  Clock, Server, ShieldCheck, ShieldOff, Trash2, UserPlus, X, Mail, Eye, Globe, ChevronRight, Zap
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function AdminView({ session }) {
+  const { isAdmin, isAuditor } = useUserProfile();
+  const readOnly = isAuditor && !isAdmin;
+
   const [globalStats, setGlobalStats] = useState({
     totalArticles: 0,
     totalUsers: 0,
@@ -28,53 +32,38 @@ export default function AdminView({ session }) {
   useEffect(() => {
     async function fetchAdminData() {
       setLoading(true);
-      setError(null);
-      
-      // 1. Authorization check (Strict Database Flag)
-      const { data: profile, error: profileError } = await supabase
-        .from('tenant_profiles')
-        .select('is_admin')
-        .eq('user_id', session.user.id)
-        .single();
-      
-      if (profileError || !profile?.is_admin) {
-        setIsAuthorized(false);
-        setLoading(false);
-        return;
-      }
-
-      // 2. Check if admin client is available
       if (!supabaseAdmin) {
         setError('Service role key not configured. Add VITE_SUPABASE_SERVICE_ROLE_KEY to your .env file.');
         setLoading(false);
         return;
       }
 
-      // 3. Fetch all data using admin client (bypasses RLS)
       try {
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
         sevenDaysAgo.setHours(0, 0, 0, 0);
 
         const [
-          resArticles, resTenants, resSources, resChart, resColl, resSumm
+          resArticles, resTenants, resSources, resChart, resColl, resSumm, resAllSources
         ] = await Promise.all([
           supabaseAdmin.from('articles').select('*', { count: 'exact', head: true }),
-          supabaseAdmin.from('tenant_profiles').select('*', { count: 'exact' }),
+          supabaseAdmin.from('tenant_profiles').select('*').order('full_name'),
           supabaseAdmin.from('rss_sources').select('*', { count: 'exact', head: true }),
           supabaseAdmin.from('articles').select('created_at').gte('created_at', sevenDaysAgo.toISOString()),
           supabaseAdmin.from('telemetry').select('metrics').eq('service', 'collector').order('timestamp', { ascending: false }).limit(1),
-          supabaseAdmin.from('telemetry').select('metrics').eq('service', 'summarizer').order('timestamp', { ascending: false }).limit(1)
+          supabaseAdmin.from('telemetry').select('metrics').eq('service', 'summarizer').order('timestamp', { ascending: false }).limit(1),
+          supabaseAdmin.from('rss_sources').select('user_id'),
         ]);
 
-        // Check for errors
-        const firstErr = resArticles.error || resTenants.error || resSources.error || resChart.error || resColl.error || resSumm.error;
-        if (firstErr) {
-          console.error("Admin Fetch Error:", firstErr);
-          setError(firstErr.message || 'Failed to fetch admin data');
+        const sourceCountByUser = {};
+        (resAllSources.data || []).forEach(s => {
+          sourceCountByUser[s.user_id] = (sourceCountByUser[s.user_id] || 0) + 1;
+        });
+
+        if (resTenants.data) {
+          setTenants(resTenants.data.map(t => ({ ...t, sourceCount: sourceCountByUser[t.user_id] || 0 })));
         }
 
-        // Build chart data
         const days = {};
         for (let i = 0; i < 7; i++) {
           const d = new Date();
@@ -93,7 +82,7 @@ export default function AdminView({ session }) {
 
         setGlobalStats({
           totalArticles: resArticles.count || 0,
-          totalUsers: resTenants.count || 0,
+          totalUsers: resTenants.data?.length || 0,
           totalSources: resSources.count || 0,
           pipelineHealth: collMetrics.total_sources > 0 
             ? Math.round(((collMetrics.total_sources - collMetrics.error_count) / collMetrics.total_sources) * 100) 
@@ -101,68 +90,53 @@ export default function AdminView({ session }) {
           avgNoise: summMetrics.noise_ratio || 0
         });
 
-        if (resTenants.data) setTenants(resTenants.data);
         setChartData(Object.entries(days).map(([name, value]) => ({ name, value })).reverse());
       } catch (e) {
-        console.error("Critical Admin View Error:", e);
         setError(e.message || String(e));
       } finally {
         setLoading(false);
       }
     }
-
     fetchAdminData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [session.user.id]);
 
-  // Refresh tenants list
   async function refreshTenants() {
     if (!supabaseAdmin) return;
-    const { data } = await supabaseAdmin.from('tenant_profiles').select('*', { count: 'exact' });
-    if (data) {
-      setTenants(data);
-      setGlobalStats(prev => ({ ...prev, totalUsers: data.length }));
-    }
+    const { data } = await supabaseAdmin.from('tenant_profiles').select('*').order('full_name');
+    if (data) setTenants(data);
   }
 
-  // Toggle admin role
-  async function toggleAdmin(userId, currentStatus) {
-    if (userId === session.user.id) return; // Can't demote yourself
+  async function changeRole(userId, newRole) {
+    if (userId === session.user.id || readOnly) return;
     setActionLoading(userId);
-    await supabaseAdmin.from('tenant_profiles').update({ is_admin: !currentStatus }).eq('user_id', userId);
+    await supabaseAdmin.from('tenant_profiles').update({ role: newRole }).eq('user_id', userId);
     await refreshTenants();
     setActionLoading(null);
   }
 
-  // Remove user (Full Deletion)
   async function removeUser(userId, name) {
-    if (userId === session.user.id) return; // Can't remove yourself
-    if (!confirm(`\u26a0\ufe0f PERMANENT DELETION\n\nAre you sure you want to delete "${name || 'Anonymous'}"?\nThis will permanently destroy their account and ALL associated data (Profiles, Articles, RSS Sources).`)) return;
-    
+    if (userId === session.user.id || readOnly) return;
+    if (!confirm(`Permanently delete "${name || 'Anonymous'}"?`)) return;
     setActionLoading(userId);
     try {
-      // Deleting from auth.users triggers ON DELETE CASCADE in all related tables
       const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
       if (error) throw error;
       await refreshTenants();
     } catch (err) {
-      console.error("Deletion Error:", err);
-      alert("Error deleting user: " + (err.message || String(err)));
+      alert("Error: " + err.message);
     } finally {
       setActionLoading(null);
     }
   }
 
-  // Add user
   async function addUser(e) {
     e.preventDefault();
-    if (!newUserEmail.trim()) return;
+    if (!newUserEmail.trim() || readOnly) return;
     setActionLoading('add');
-    // Look up user by email in auth.users
     const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers();
     const found = authUsers?.users?.find(u => u.email === newUserEmail.trim());
     if (!found) {
-      alert(`No registered user found with email: ${newUserEmail}`);
+      alert(`User not found: ${newUserEmail}`);
       setActionLoading(null);
       return;
     }
@@ -170,295 +144,182 @@ export default function AdminView({ session }) {
       user_id: found.id,
       email: found.email,
       full_name: newUserName.trim() || found.user_metadata?.full_name || newUserEmail.split('@')[0],
-      is_admin: false
+      role: 'user'
     });
-    setNewUserEmail('');
-    setNewUserName('');
-    setShowAddUser(false);
+    setNewUserEmail(''); setNewUserName(''); setShowAddUser(false);
     await refreshTenants();
     setActionLoading(null);
   }
 
-  if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading Administrative Console...</div>;
+  const StatCard = ({ label, value, icon: Icon, color }) => (
+    <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', borderTop: `1px solid ${color || 'transparent'}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>{label.toUpperCase()}</span>
+        <Icon size={14} style={{ color: color || 'var(--text-muted)', opacity: 0.6 }} />
+      </div>
+      <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fff' }}>{loading ? '...' : value}</div>
+    </div>
+  );
 
-  if (!isAuthorized) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', textAlign: 'center', padding: '2rem' }}>
-        <div style={{ padding: '2rem', borderRadius: '20px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.1)' }}>
-          <Shield size={64} color="var(--semantic-danger)" style={{ marginBottom: '1.5rem', opacity: 0.5 }} />
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.75rem' }}>Restricted Access</h2>
-          <p style={{ color: 'var(--text-secondary)', maxWidth: '400px', lineHeight: '1.6' }}>
-            This console is reserved for system administrators. Your credentials do not have the required permissions to view global telemetry.
-          </p>
-          <button onClick={() => window.location.href = '/'} style={{ marginTop: '2rem', padding: '0.75rem 2rem' }}>
-            Return to Dashboard
+  if (loading) return <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>Initializing Command Center...</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+      
+      {/* HEADER */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--card-border)', paddingBottom: '2rem' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+            <Shield size={20} color="var(--accent)" />
+            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--accent)', letterSpacing: '0.1em' }}>PLATFORM OPERATOR</span>
+          </div>
+          <h1 style={{ fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.03em', margin: 0 }}>Command Center</h1>
+        </div>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <button 
+            className="secondary" 
+            style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            onClick={() => setShowAddUser(!showAddUser)}
+          >
+            {showAddUser ? <X size={14} /> : <UserPlus size={14} />} {showAddUser ? 'Cancel' : 'Enroll Tenant'}
           </button>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div style={{ padding: '0 0.5rem' }}>
-      {error && (
-        <div className="glass-panel" style={{ padding: '1.25rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#fca5a5', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <AlertCircle size={18} />
-          <div>
-            <div style={{ fontWeight: 600 }}>Configuration Issue</div>
-            <div style={{ fontSize: '0.85rem' }}>{error}</div>
-          </div>
+      {readOnly && (
+        <div style={{ padding: '1rem 1.5rem', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', color: '#93c5fd', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>
+          <Eye size={16} /> Audit Mode: System-wide observation enabled. Write operations restricted.
         </div>
       )}
-      
-      <div className="header" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-            <Shield size={24} color="var(--accent)" />
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Super Admin</span>
-          </div>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 700 }}>System Control Center</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Global oversight across all localized intelligence nodes.</p>
-        </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <div className="glass-panel" style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}>
-            <Server size={14} color="var(--semantic-success)" />
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6ee7b7' }}>Pipeline Online</span>
-          </div>
-        </div>
+
+      {/* GLOBAL METRICS */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+        <StatCard label="Platform Intelligence" value={globalStats.totalArticles} icon={Zap} color="var(--accent)" />
+        <StatCard label="Fleet Capacity" value={globalStats.totalUsers} icon={Users} color="#10b981" />
+        <StatCard label="Global Registry" value={globalStats.totalSources} icon={Rss} color="#6366f1" />
+        <StatCard label="Core Uptime" value={globalStats.pipelineHealth + '%'} icon={Activity} color="#f59e0b" />
+        <StatCard label="Noise floor" value={globalStats.avgNoise + '%'} icon={ShieldCheck} color="#ec4899" />
       </div>
 
-      {/* Global Metrics High-Density Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
-        <AdminStatCard label="Total Intelligence" value={globalStats.totalArticles} icon={Activity} />
-        <AdminStatCard label="Active Tenants" value={globalStats.totalUsers} icon={Users} />
-        <AdminStatCard label="Global Sources" value={globalStats.totalSources} icon={Rss} />
-        <AdminStatCard label="Pipeline Health" value={`${globalStats.pipelineHealth}%`} icon={CheckCircle2} statusColor={globalStats.pipelineHealth > 90 ? '#6ee7b7' : '#fcd34d'} />
-        <AdminStatCard label="Noise Reduction" value={`${globalStats.avgNoise}%`} icon={AlertCircle} />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
-        {/* Global Velocity Chart */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+        {/* CHART */}
         <div className="glass-panel" style={{ padding: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>System-wide Processing Velocity</h3>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Total articles synthesized (7D)</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+            <h3 style={{ fontSize: '0.9rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Synthesis Velocity</h3>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>SYSTEM-WIDE AGGREGATE (7D)</span>
           </div>
           <div style={{ height: '240px' }}>
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer>
               <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="colorAdmin" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: 'var(--text-muted)', fontSize: 10}} />
-                <YAxis hide />
-                <Tooltip 
-                  contentStyle={{ background: '#0f172a', border: '1px solid var(--card-border)', borderRadius: '8px' }}
-                  itemStyle={{ color: 'var(--accent)', fontSize: '12px' }}
-                />
-                <Area type="monotone" dataKey="value" stroke="var(--accent)" strokeWidth={2} fillOpacity={1} fill="url(#colorAdmin)" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.02)" />
+                <XAxis dataKey="name" hide />
+                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid var(--card-border)', borderRadius: '8px' }} />
+                <Area type="monotone" dataKey="value" stroke="var(--accent)" strokeWidth={3} fill="rgba(59, 130, 246, 0.05)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* System Events / Health */}
+        {/* RECENT EVENTS MOCKUP */}
         <div className="glass-panel" style={{ padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1.25rem' }}>Critical System Events</h3>
+          <h3 style={{ fontSize: '0.9rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1.5rem' }}>Operational Status</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div className="empty-state" style={{ padding: '2rem 1rem' }}>
-              <Clock size={32} className="empty-state-icon" />
-              <div>
-                <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.85rem' }}>System Idle</p>
-                <p style={{ fontSize: '0.75rem' }}>Waiting for pipeline triggers...</p>
+            {[
+              { label: 'Summarizer Node', status: 'ACTIVE', color: '#10b981' },
+              { label: 'Collector Engine', status: 'SYNCING', color: '#60a5fa' },
+              { label: 'Vector Database', status: 'CONNECTED', color: '#10b981' },
+              { label: 'Auth Gateway', status: 'SECURE', color: '#10b981' },
+            ].map(e => (
+              <div key={e.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--card-border)' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>{e.label}</span>
+                <span style={{ fontSize: '0.65rem', fontWeight: 900, color: e.color }}>{e.status}</span>
               </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Tenant Management Table */}
-      <div className="glass-panel" style={{ overflow: 'hidden' }}>
-        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--card-border)', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Tenant Oversight</h3>
-          <button
-            onClick={() => setShowAddUser(!showAddUser)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.5rem 1rem', fontSize: '0.8rem', fontWeight: 600,
-              background: showAddUser ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
-              border: '1px solid ' + (showAddUser ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'),
-              borderRadius: '8px', cursor: 'pointer',
-              color: showAddUser ? '#fca5a5' : '#6ee7b7',
-              transition: 'all 0.2s'
-            }}
-          >
-            {showAddUser ? <><X size={14} /> Cancel</> : <><UserPlus size={14} /> Add User</>}
-          </button>
+      {/* ADD USER FORM */}
+      {showAddUser && (
+        <form onSubmit={addUser} className="glass-panel fade-in" style={{ padding: '1.5rem', background: 'rgba(59,130,246,0.03)', display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem', alignItems: 'flex-end' }}>
+          <div className="filter-group"><label>Email Endpoint</label><input type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} placeholder="user@example.com" required /></div>
+          <div className="filter-group"><label>Identity Alias</label><input type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} placeholder="Display name" /></div>
+          <button type="submit" style={{ height: '42px', padding: '0 2rem', fontWeight: 900 }}>ENROLL</button>
+        </form>
+      )}
+
+      {/* TENANT TABLE */}
+      <div className="glass-panel" style={{ overflow: 'hidden', background: 'transparent', border: '1px solid var(--card-border)' }}>
+        <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 900 }}>Fleet Management</h3>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>{tenants.length} NODES DISCOVERED</div>
         </div>
-
-        {/* Add User Form */}
-        {showAddUser && (
-          <form onSubmit={addUser} style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--card-border)', background: 'rgba(16,185,129,0.03)', display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: '200px' }}>
-              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Email (must be registered)</label>
-              <input
-                type="email"
-                value={newUserEmail}
-                onChange={e => setNewUserEmail(e.target.value)}
-                placeholder="user@example.com"
-                required
-                style={{ marginBottom: 0, padding: '0.5rem 0.75rem' }}
-              />
-            </div>
-            <div style={{ flex: 1, minWidth: '150px' }}>
-              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Display Name (optional)</label>
-              <input
-                type="text"
-                value={newUserName}
-                onChange={e => setNewUserName(e.target.value)}
-                placeholder="John Doe"
-                style={{ marginBottom: 0, padding: '0.5rem 0.75rem' }}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={actionLoading === 'add'}
-              style={{ padding: '0.5rem 1.5rem', whiteSpace: 'nowrap', height: 'fit-content' }}
-            >
-              {actionLoading === 'add' ? 'Adding...' : 'Add Tenant'}
-            </button>
-          </form>
-        )}
-
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table className="data-table" style={{ border: 'none' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--card-border)', background: 'rgba(255,255,255,0.02)' }}>
-                <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tenant/User</th>
-                <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Email</th>
-                <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
-                <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Role</th>
-                <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Actions</th>
+              <tr style={{ background: 'rgba(255,255,255,0.01)' }}>
+                <th>Identity</th>
+                <th>Endpoint</th>
+                <th>Role Architecture</th>
+                <th>Sources</th>
+                <th style={{ textAlign: 'right' }}>Operations</th>
               </tr>
             </thead>
             <tbody>
-              {tenants.map((t, idx) => {
+              {tenants.map(t => {
                 const isSelf = t.user_id === session.user.id;
                 const isLoading = actionLoading === t.user_id;
+                const roleMap = {
+                  admin:   { color: '#f87171', label: '🛡️ ADMIN' },
+                  auditor: { color: '#60a5fa', label: '👁️ AUDITOR' },
+                  premium: { color: '#fbbf24', label: '⭐ PREMIUM' },
+                  user:    { color: '#94a3b8', label: 'STANDARD' },
+                };
+                const r = roleMap[t.role] || roleMap.user;
                 return (
-                  <tr key={idx} style={{ borderBottom: '1px solid var(--card-border)', transition: 'background 0.2s', opacity: isLoading ? 0.5 : 1 }} className="hover-row">
-                    <td style={{ padding: '1rem 1.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.full_name || 'Anonymous Tenant'}</div>
-                        {isSelf && <span style={{ fontSize: '0.6rem', padding: '0.15rem 0.4rem', borderRadius: '4px', background: 'rgba(59,130,246,0.15)', color: 'var(--accent)', fontWeight: 700 }}>YOU</span>}
+                  <tr key={t.user_id} style={{ opacity: isLoading ? 0.5 : 1 }}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--card-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: 'var(--accent)' }}>{t.full_name?.[0] || 'A'}</div>
+                        <span style={{ fontWeight: 800 }}>{t.full_name || 'Anonymous'}</span>
+                        {isSelf && <span style={{ fontSize: '0.6rem', color: 'var(--accent)', fontWeight: 900, letterSpacing: '0.05em' }}>[YOU]</span>}
                       </div>
                     </td>
-                    <td style={{ padding: '1rem 1.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                        <Mail size={12} style={{ opacity: 0.6 }} />
-                        {t.email || <em style={{ opacity: 0.5 }}>Not Synced</em>}
-                      </div>
+                    <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t.email}</td>
+                    <td>
+                      <span style={{ fontSize: '0.65rem', fontWeight: 900, color: r.color, border: `1px solid ${r.color}`, padding: '0.2rem 0.6rem', borderRadius: '4px' }}>{r.label}</span>
                     </td>
-                    <td style={{ padding: '1rem 1.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6ee7b7' }} />
-                        <span style={{ fontSize: '0.85rem' }}>Active</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: '1rem 1.5rem' }}>
-                      <span style={{
-                        fontSize: '0.75rem', fontWeight: 600, padding: '0.3rem 0.6rem', borderRadius: '6px',
-                        background: t.is_admin ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.03)',
-                        border: '1px solid ' + (t.is_admin ? 'rgba(16,185,129,0.2)' : 'var(--card-border)'),
-                        color: t.is_admin ? '#6ee7b7' : 'var(--text-secondary)'
-                      }}>
-                        {t.is_admin ? '🛡️ Admin' : 'Standard'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '1rem 1.5rem' }}>
+                    <td style={{ fontWeight: 700, fontSize: '0.85rem' }}>{t.sourceCount || 0}</td>
+                    <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                        <button
-                          onClick={() => toggleAdmin(t.user_id, t.is_admin)}
-                          disabled={isSelf || isLoading}
-                          title={isSelf ? 'Cannot change your own role' : (t.is_admin ? 'Demote to Standard' : 'Promote to Admin')}
-                          style={{
-                            padding: '0.4rem 0.6rem', fontSize: '0.75rem', cursor: isSelf ? 'not-allowed' : 'pointer',
-                            background: 'transparent', border: '1px solid var(--card-border)', borderRadius: '6px',
-                            color: isSelf ? 'var(--text-muted)' : (t.is_admin ? '#fcd34d' : '#6ee7b7'),
-                            opacity: isSelf ? 0.4 : 1, display: 'flex', alignItems: 'center', gap: '0.35rem',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseOver={e => { if (!isSelf) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-                          onMouseOut={e => { e.currentTarget.style.background = 'transparent'; }}
+                        <select 
+                          value={t.role || 'user'} 
+                          disabled={isSelf || readOnly} 
+                          onChange={e => changeRole(t.user_id, e.target.value)}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--card-border)', color: '#fff', fontSize: '0.75rem', padding: '0.3rem', borderRadius: '6px' }}
                         >
-                          {t.is_admin ? <><ShieldOff size={12} /> Demote</> : <><ShieldCheck size={12} /> Promote</>}
-                        </button>
-                        <button
-                          onClick={() => removeUser(t.user_id, t.full_name)}
-                          disabled={isSelf || isLoading}
-                          title={isSelf ? 'Cannot remove yourself' : 'Remove tenant'}
-                          style={{
-                            padding: '0.4rem 0.6rem', fontSize: '0.75rem', cursor: isSelf ? 'not-allowed' : 'pointer',
-                            background: 'transparent', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px',
-                            color: '#ef4444', opacity: isSelf ? 0.4 : 1, display: 'flex', alignItems: 'center', gap: '0.35rem',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseOver={e => { if (!isSelf) e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }}
-                          onMouseOut={e => { e.currentTarget.style.background = 'transparent'; }}
-                        >
-                          <Trash2 size={12} /> Remove
-                        </button>
+                          <option value="admin">Admin</option>
+                          <option value="auditor">Auditor</option>
+                          <option value="premium">Premium</option>
+                          <option value="user">User</option>
+                        </select>
+                        <button className="secondary" disabled={isSelf || readOnly} onClick={() => removeUser(t.user_id, t.full_name)} style={{ color: '#ef4444', padding: '0.3rem 0.6rem', border: '1px solid rgba(239,68,68,0.2)' }}><Trash2 size={12} /></button>
                       </div>
                     </td>
                   </tr>
                 );
               })}
-              {tenants.length === 0 && (
-                <tr>
-                  <td colSpan="5" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    No tenant profiles found.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
       </div>
-    </div>
-  );
-}
-
-function AdminStatCard({ label, value, icon, statusColor }) {
-  const Icon = icon;
-  return (
-    <div className="glass-panel stat-card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-        <div style={{ padding: '0.4rem', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--card-border)' }}>
-          <Icon size={16} color={statusColor || 'var(--accent)'} />
-        </div>
-        <ArrowUpRight size={14} color="var(--text-muted)" />
-      </div>
-      <div>
-        <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
-        <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{value}</div>
-      </div>
-    </div>
-  );
-}
-
-function EventRow({ status, label, time }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem 0' }}>
-      {status === 'success' ? <CheckCircle2 size={14} color="#6ee7b7" /> : <AlertCircle size={14} color="#fcd34d" />}
-      <div style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{label}</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-        <Clock size={12} />
-        {time}
-      </div>
+      
+      <style dangerouslySetInnerHTML={{ __html: `
+        .filter-group { display: flex; flex-direction: column; gap: 0.4rem; }
+        .filter-group label { font-size: 0.6rem; font-weight: 900; color: var(--text-muted); text-transform: uppercase; }
+        .filter-group input { background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); color: #fff; padding: 0.6rem; border-radius: 8px; font-size: 0.8rem; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+      `}} />
     </div>
   );
 }

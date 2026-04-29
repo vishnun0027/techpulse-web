@@ -1,43 +1,67 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { Newspaper, ChevronRight, ThumbsUp, ThumbsDown, Bookmark, ExternalLink, Zap } from 'lucide-react';
+import { supabaseAdmin } from '../supabase';
+import { useUserProfile } from '../context/UserProfileContext';
+import { Newspaper, ChevronRight, ThumbsUp, ThumbsDown, Bookmark, ExternalLink, Zap, Globe, Users } from 'lucide-react';
 
 export default function MorningBriefView({ session }) {
+  const { isAdmin } = useUserProfile();
   const [digest, setDigest] = useState(null);
+  const [adminReport, setAdminReport] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchDigest() {
       setLoading(true);
-      // Fetch latest V2 processed articles for this user
-      const { data, error } = await supabase
-        .from('articles')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .eq('v2_processed', true)
-        .order('score', { ascending: false })
-        .limit(20);
 
-      if (data) {
-        // Group by theme (simulation of composer agent logic on frontend if needed, 
-        // but ideally we'd fetch a pre-composed digest object if we had a table for it)
-        const grouped = data.reduce((acc, art) => {
-          const theme = art.topics?.[0] || '📡 Quiet Signals';
-          if (!acc[theme]) acc[theme] = [];
-          acc[theme].push(art);
-          return acc;
-        }, {});
-        
-        setDigest({
-          intro: "Here's your personal tech intelligence briefing for today.",
-          sections: grouped,
-          breaking: data.filter(a => a.score >= 8.0)
+      if (isAdmin && supabaseAdmin) {
+        // Admin sees a cross-tenant delivery report
+        const [{ data: articles }, { data: tenants }] = await Promise.all([
+          supabaseAdmin.from('articles').select('user_id, is_delivered, score, created_at, source').order('created_at', { ascending: false }).limit(200),
+          supabaseAdmin.from('tenant_profiles').select('user_id, full_name, email, role'),
+        ]);
+
+        const tenantMap = {};
+        (tenants || []).forEach(t => { tenantMap[t.user_id] = t; });
+
+        // Group articles by tenant
+        const byTenant = {};
+        (articles || []).forEach(a => {
+          if (!byTenant[a.user_id]) byTenant[a.user_id] = { total: 0, delivered: 0, pending: 0 };
+          byTenant[a.user_id].total++;
+          if (a.is_delivered) byTenant[a.user_id].delivered++;
+          else byTenant[a.user_id].pending++;
         });
+
+        setAdminReport({ byTenant, tenantMap });
+      } else {
+        // Regular user personal briefing
+        const { data } = await supabase
+          .from('articles')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .eq('v2_processed', true)
+          .order('score', { ascending: false })
+          .limit(20);
+
+        if (data) {
+          const grouped = data.reduce((acc, art) => {
+            const theme = art.topics?.[0] || '📡 Quiet Signals';
+            if (!acc[theme]) acc[theme] = [];
+            acc[theme].push(art);
+            return acc;
+          }, {});
+          setDigest({
+            intro: "Here's your personal tech intelligence briefing for today.",
+            sections: grouped,
+            breaking: data.filter(a => a.score >= 8.0)
+          });
+        }
       }
       setLoading(false);
     }
     fetchDigest();
-  }, [session]);
+  }, [session, isAdmin]);
 
   const handleFeedback = async (articleId, signal) => {
     await supabase.from('user_feedback').insert({
@@ -48,7 +72,77 @@ export default function MorningBriefView({ session }) {
     // Add toast or UI feedback here
   };
 
-  if (loading) return <div className="p-8 opacity-50">Curating your brief...</div>;
+  if (loading) return <div className="p-8 opacity-50">Loading briefing...</div>;
+
+  // ── ADMIN: System Delivery Report ─────────────────────────────────────────
+  if (isAdmin && adminReport) {
+    const { byTenant, tenantMap } = adminReport;
+    const tenantIds = Object.keys(byTenant);
+    const totalDelivered = tenantIds.reduce((s, id) => s + byTenant[id].delivered, 0);
+    const totalArticles  = tenantIds.reduce((s, id) => s + byTenant[id].total, 0);
+
+    return (
+      <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <header style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', padding: '2rem', borderRadius: '20px', background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.15)' }}>
+          <div style={{ padding: '1rem', borderRadius: '16px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>
+            <Globe size={28} color="#93c5fd" />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.35rem' }}>System Delivery Report</div>
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 900, marginBottom: '0.25rem' }}>Morning Brief — All Tenants</h1>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · {tenantIds.length} active tenants · {totalDelivered} of {totalArticles} articles delivered
+            </p>
+          </div>
+        </header>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+          {tenantIds.map(uid => {
+            const t = tenantMap[uid] || {};
+            const stats = byTenant[uid];
+            const pct = stats.total > 0 ? Math.round((stats.delivered / stats.total) * 100) : 0;
+            const roleColour = { admin: '#6ee7b7', auditor: '#93c5fd', premium: '#fcd34d', user: 'var(--text-muted)' }[t.role] || 'var(--text-muted)';
+            return (
+              <div key={uid} className="glass-panel" style={{ padding: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{t.full_name || 'Anonymous'}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.email || uid.slice(0, 12) + '…'}</div>
+                  </div>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.2rem 0.45rem', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--card-border)', color: roleColour }}>
+                    {t.role || 'user'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ flex: 1, textAlign: 'center', padding: '0.75rem', borderRadius: '10px', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#6ee7b7' }}>{stats.delivered}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Delivered</div>
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'center', padding: '0.75rem', borderRadius: '10px', background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.15)' }}>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fcd34d' }}>{stats.pending}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pending</div>
+                  </div>
+                </div>
+                <div style={{ height: '6px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, var(--accent), #6ee7b7)', borderRadius: '4px', transition: 'width 0.8s ease' }} />
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem', textAlign: 'right' }}>{pct}% delivery rate</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {tenantIds.length === 0 && (
+          <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <Users size={32} style={{ marginBottom: '1rem', opacity: 0.3 }} />
+            <p>No tenant activity found.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── REGULAR USER: Personal Briefing ───────────────────────────────────────
   if (!digest || Object.keys(digest.sections).length === 0) return <div className="p-8 text-center text-muted">No briefing available. Run the pipeline to generate one.</div>;
 
   return (

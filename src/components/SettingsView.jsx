@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
+import { useUserProfile, PremiumGate } from '../context/UserProfileContext';
 import { 
   Trash2, Plus, Pencil, Check, X, Upload, 
   Rss, Brain, Webhook, ChevronRight, 
-  Activity, Globe, Info, Save, User
+  Activity, Globe, Info, Save, User, Lock
 } from 'lucide-react';
 
 export default function SettingsView({ session }) {
-  const [activeTab, setActiveTab] = useState('sources');
+  const { canAccess, rssLimit, isPremium, isAdmin } = useUserProfile();
+  const [activeTab, setActiveTab] = useState(isAdmin ? 'profile' : 'sources');
   
   /* ── RSS sources ── */
   const [sources, setSources]           = useState([]);
@@ -159,9 +161,10 @@ export default function SettingsView({ session }) {
         
         {/* Sidebar Nav */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <NavButton active={activeTab === 'sources'} onClick={() => setActiveTab('sources')} icon={Rss} label="Intelligence Streams" />
-          <NavButton active={activeTab === 'engine'} onClick={() => setActiveTab('engine')} icon={Brain} label="Inference Rules" />
-          <NavButton active={activeTab === 'delivery'} onClick={() => setActiveTab('delivery')} icon={Webhook} label="Delivery Channels" />
+          {/* Intelligence Streams and Inference Rules are for regular users only */}
+          {!isAdmin && <NavButton active={activeTab === 'sources'} onClick={() => setActiveTab('sources')} icon={Rss} label="Intelligence Streams" />}
+          {!isAdmin && <NavButton active={activeTab === 'engine'} onClick={() => setActiveTab('engine')} icon={Brain} label="Inference Rules" locked={!canAccess('inferenceRules')} />}
+          {!isAdmin && <NavButton active={activeTab === 'delivery'} onClick={() => setActiveTab('delivery')} icon={Webhook} label="Delivery Channels" locked={!canAccess('webhookDelivery')} />}
           <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={User} label="Identity Profile" />
           
           <div style={{ marginTop: 'auto', padding: '1.5rem', borderRadius: '16px', background: 'var(--panel-top)', border: '1px solid var(--card-border)' }}>
@@ -183,11 +186,22 @@ export default function SettingsView({ session }) {
               {activeTab === 'profile' && 'Identity: Parameters'}
             </h2>
             {activeTab === 'sources' && (
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <input ref={fileInputRef} type="file" accept=".txt" onChange={handleFileUpload} style={{ display: 'none' }} />
-                <button className="secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', borderRadius: '10px' }} onClick={() => fileInputRef.current?.click()}>
-                  <Upload size={14} style={{ marginRight: '0.5rem' }} /> Bulk Import
-                </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                {/* RSS source quota counter */}
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  <span style={{ color: sources.length >= rssLimit ? 'var(--semantic-danger)' : 'var(--text-primary)', fontWeight: 700 }}>
+                    {sources.length}
+                  </span>
+                  {' / '}{rssLimit === Infinity ? '∞' : rssLimit} sources
+                </div>
+                {isPremium && (
+                  <>
+                    <input ref={fileInputRef} type="file" accept=".txt" onChange={handleFileUpload} style={{ display: 'none' }} />
+                    <button className="secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', borderRadius: '10px' }} onClick={() => fileInputRef.current?.click()}>
+                      <Upload size={14} style={{ marginRight: '0.5rem' }} /> Bulk Import
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -248,7 +262,13 @@ export default function SettingsView({ session }) {
             {activeTab === 'engine' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {topicMsg && <Alert text={topicMsg.text} isErr={topicMsg.err} />}
-                
+
+                {!canAccess('inferenceRules') ? (
+                  <PremiumGate
+                    feature="Custom Inference Rules"
+                    description="Define allowed topics, exclusion filters, and priority keywords to guide the AI pipeline toward signals that matter most to you."
+                  />
+                ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   <div className="glass-panel" style={{ padding: '2rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
@@ -270,13 +290,21 @@ export default function SettingsView({ session }) {
 
                   <button onClick={saveTopics} style={{ alignSelf: 'flex-start', padding: '1rem 3rem', borderRadius: '12px', fontWeight: 700 }}>Commit Inference Rules</button>
                 </div>
+                )}
               </div>
             )}
 
             {activeTab === 'delivery' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                 {webhookMsg && <Alert text={webhookMsg.text} isErr={webhookMsg.err} />}
-                
+
+                {!canAccess('webhookDelivery') ? (
+                  <PremiumGate
+                    feature="Delivery Channels (Slack & Discord)"
+                    description="Receive your AI-generated tech digests directly to Slack or Discord. Upgrade to Premium to configure webhooks."
+                  />
+                ) : (
+                <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '2rem' }}>
                   <div className="glass-panel" style={{ padding: '2rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
@@ -306,6 +334,7 @@ export default function SettingsView({ session }) {
                   <p style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 500 }}>System automated digests are relayed to active channels on an hourly schedule.</p>
                   <button onClick={saveWebhooks} style={{ marginLeft: 'auto', padding: '0.75rem 2rem', borderRadius: '10px', fontWeight: 700 }}>Save Configurations</button>
                 </div>
+                </>)}
               </div>
             )}
 
@@ -357,7 +386,7 @@ export default function SettingsView({ session }) {
 
 /* ─── internal components ─── */
 
-function NavButton({ active, icon, label, onClick }) {
+function NavButton({ active, icon, label, onClick, locked }) {
   const Icon = icon;
   return (
     <button
@@ -370,12 +399,13 @@ function NavButton({ active, icon, label, onClick }) {
         borderRadius: '16px',
         background: active ? 'var(--accent-glow)' : 'transparent',
         border: active ? '1px solid var(--accent)' : '1px solid transparent',
-        color: active ? 'white' : 'var(--text-secondary)',
+        color: locked ? 'var(--text-muted)' : (active ? 'white' : 'var(--text-secondary)'),
         textAlign: 'left',
         width: '100%',
         transition: 'var(--transition-smooth)',
         fontWeight: active ? 800 : 500,
-        fontSize: '0.95rem'
+        fontSize: '0.95rem',
+        opacity: locked ? 0.7 : 1,
       }}
       onMouseOver={e => { if(!active) e.currentTarget.style.background = 'hsla(0, 0%, 100%, 0.03)'; }}
       onMouseOut={e => { if(!active) e.currentTarget.style.background = 'transparent'; }}
@@ -384,7 +414,10 @@ function NavButton({ active, icon, label, onClick }) {
         <Icon size={20} strokeWidth={active ? 2.5 : 2} className={active ? 'text-accent' : ''} />
         {label}
       </div>
-      {active && <ChevronRight size={16} className="text-accent" />}
+      {locked
+        ? <Lock size={13} style={{ color: '#fcd34d', opacity: 0.7 }} />
+        : active && <ChevronRight size={16} className="text-accent" />
+      }
     </button>
   );
 }

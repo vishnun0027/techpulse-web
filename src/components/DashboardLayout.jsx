@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { useUserProfile } from '../context/UserProfileContext';
 import { LayoutDashboard, Settings, LogOut, Activity, ChevronDown, User, Shield, Newspaper, Search } from 'lucide-react';
 
 export default function DashboardLayout({ session }) {
   const [showMenu, setShowMenu] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const menuRef = useRef(null);
+
+  // Role data from context — no extra DB call needed
+  const { isAdmin, isAuditor, canNav, roleLabel } = useUserProfile();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -22,26 +25,6 @@ export default function DashboardLayout({ session }) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  // Check for admin privileges (Strict Database Check)
-  useEffect(() => {
-    async function checkAdmin() {
-      try {
-        const { data, error } = await supabase
-          .from('tenant_profiles')
-          .select('is_admin')
-          .eq('user_id', session.user.id)
-          .single();
-          
-        if (error) throw error;
-        setIsAdmin(!!data?.is_admin);
-      } catch (err) {
-        console.warn("RBAC check failed:", err?.message || err);
-        setIsAdmin(false);
-      }
-    }
-    checkAdmin();
-  }, [session]);
 
   return (
     <div className="app-container">
@@ -72,50 +55,48 @@ export default function DashboardLayout({ session }) {
           </div>
           
           <div className="nav-links">
-            <NavLink 
-              to="/" 
-              end
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-            >
-              <LayoutDashboard size={18} /> <span>Dashboard</span>
-            </NavLink>
-            <NavLink 
-              to="/settings" 
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-            >
-              <Settings size={18} /> <span>Settings</span>
-            </NavLink>
-            <NavLink 
-              to="/brief" 
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-            >
-              <Newspaper size={18} /> <span>Morning Brief</span>
-            </NavLink>
-            <NavLink 
-              to="/search" 
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-            >
-              <Search size={18} /> <span>Ask TechPulse</span>
-            </NavLink>
-            <NavLink 
-              to="/radar" 
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-            >
-              <Activity size={18} /> <span>Radar</span>
-            </NavLink>
-
-            {isAdmin && (
-              <NavLink 
-                to="/admin" 
-                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                style={{ color: 'var(--semantic-warning)', marginLeft: '1rem' }}
-              >
-                <Shield size={18} /> <span>Admin</span>
+            {/* Dashboard — all roles */}
+            {canNav('dashboard') && (
+              <NavLink to="/" end className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <LayoutDashboard size={18} /> <span>Dashboard</span>
               </NavLink>
             )}
-          </div>
-        </div>
-
+            {/* Settings — all roles */}
+            {canNav('settings') && (
+              <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Settings size={18} /> <span>Settings</span>
+              </NavLink>
+            )}
+            {/* Morning Brief — admin (system report) + premium + user */}
+            {canNav('morningBrief') && (
+              <NavLink to="/brief" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Newspaper size={18} /> <span>Morning Brief</span>
+              </NavLink>
+            )}
+            {/* Ask TechPulse — admin + premium only */}
+            {canNav('semanticSearch') && (
+              <NavLink to="/search" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Search size={18} /> <span>Ask TechPulse</span>
+              </NavLink>
+            )}
+            {/* Radar — premium + standard user only (personal RSS signal) */}
+            {canNav('radar') && (
+              <NavLink to="/radar" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Activity size={18} /> <span>Radar</span>
+              </NavLink>
+            )}
+            {/* Admin Console — admin + auditor */}
+            {canNav('adminConsole') && (
+              <NavLink
+                to="/admin"
+                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                style={{ color: isAuditor ? 'var(--accent)' : 'var(--semantic-warning)', marginLeft: '1rem' }}
+              >
+                <Shield size={18} /> <span>{isAuditor ? 'Audit' : 'Admin'}</span>
+              </NavLink>
+            )}
+          </div>  {/* end nav-links */}
+        </div>  {/* end left flex group */}
         <div style={{ position: 'relative' }} ref={menuRef}>
           <button 
             className="secondary" 
@@ -148,7 +129,7 @@ export default function DashboardLayout({ session }) {
                 {session.user.user_metadata?.full_name || session.user.email.split('@')[0]}
               </div>
               <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {isAdmin ? 'Super Admin' : 'Pro Member'}
+                {roleLabel}
               </div>
             </div>
             <ChevronDown size={14} style={{ transform: showMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }} />

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './supabase';
+import { UserProfileProvider } from './context/UserProfileContext';
 import AuthView from './components/AuthView';
 import DashboardLayout from './components/DashboardLayout';
 import DashboardView from './components/DashboardView';
@@ -10,6 +11,16 @@ import MorningBriefView from './components/MorningBriefView';
 import SemanticSearchView from './components/SemanticSearchView';
 import RadarView from './components/RadarView';
 import './index.css';
+
+// Wraps DashboardLayout with UserProfileProvider so the context is available
+// to all child routes. This avoids placing a non-Route component inside <Routes>.
+function AuthenticatedLayout({ session }) {
+  return (
+    <UserProfileProvider session={session}>
+      <DashboardLayout session={session} />
+    </UserProfileProvider>
+  );
+}
 
 function App() {
   const [session, setSession] = useState(null);
@@ -45,10 +56,10 @@ function App() {
         return;
       }
 
-      // NO BYPASS: Strictly check database for profile
+      // NO BYPASS: Strictly check database for profile existence + role
       const { data } = await supabase
         .from('tenant_profiles')
-        .select('user_id')
+        .select('user_id, role')
         .eq('user_id', session.user.id)
         .single();
 
@@ -131,7 +142,7 @@ function App() {
             <Route path="*" element={<Navigate to="/auth" replace />} />
           </>
         ) : (
-          <Route element={<DashboardLayout session={session} />}>
+          <Route element={<AuthenticatedLayout session={session} />}>
             <Route path="/" element={<DashboardView session={session} />} />
             <Route path="/settings" element={<SettingsView session={session} />} />
             <Route path="/admin" element={<AdminView session={session} />} />
