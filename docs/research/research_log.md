@@ -2,7 +2,7 @@
 
 This document tracks the research areas and current state validation required before proceeding with the Zero-Cost Azure migration.
 
-## 🔍 Areas of Research
+## Areas of Research
 
 ### 1. Memory Profiling (SentenceTransformers)
 - **Objective**: Determine if `all-mpnet-base-v2` can be swapped for `all-MiniLM-L6-v2` without losing thematic accuracy.
@@ -20,14 +20,14 @@ This document tracks the research areas and current state validation required be
 
 ---
 
-## 💾 Current State Validation (Checkpoint)
+## Current State Validation (Checkpoint)
 
 | Repo | Last Stable State | Pending Changes |
 | :--- | :--- | :--- |
 | **techpulse-web** | Functional dashboard with live Edge Functions. | CORS hardening & Schema updates. |
 | **techpulse-ai** | Functional collector loop using local MPNET model. | Model swap to MiniLM & Supabase Vector integration. |
 
-## 🛠️ Research To-Do List
+## Research To-Do List
 - [ ] Create a benchmark script to measure RAM usage of `SentenceTransformer`.
 - [ ] Research Azure Static Web Apps "Preview Environments" for zero-cost staging.
 - [ ] Verify Supabase `anon` key permissions for `match_articles` RPC call.

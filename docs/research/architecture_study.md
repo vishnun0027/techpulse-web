@@ -1,4 +1,4 @@
-# TechPulse Pro: Architecture & Intelligence Study Guide
+# TechPulse Pro: Architecture and Intelligence Study Guide
 
 This document provides a "Full Picture" analysis of the TechPulse Pro platform, designed for research and architectural study.
 
