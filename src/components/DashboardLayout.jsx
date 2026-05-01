@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useUserProfile } from '../context/UserProfileContext';
 import { LayoutDashboard, Settings, LogOut, Activity, ChevronDown, User, Shield, Newspaper, Search } from 'lucide-react';
@@ -7,12 +7,21 @@ import { LayoutDashboard, Settings, LogOut, Activity, ChevronDown, User, Shield,
 export default function DashboardLayout({ session }) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
+  const navigate = useNavigate();
 
   // Role data from context — no extra DB call needed
-  const { isAdmin, isAuditor, canNav, roleLabel } = useUserProfile();
+  const { isAuditor, canNav, roleLabel } = useUserProfile();
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const handleLogout = async (event) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    setShowMenu(false);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Logout failed:', error.message);
+      return;
+    }
+    navigate('/auth', { replace: true });
   };
 
   // Close menu when clicking outside
@@ -29,29 +38,20 @@ export default function DashboardLayout({ session }) {
   return (
     <div className="app-container">
       <nav className="navbar glass-panel" style={{ 
-        borderRadius: 0, 
-        borderTop: 0, 
-        borderLeft: 0, 
-        borderRight: 0, 
         position: 'sticky', 
         top: 0, 
         zIndex: 100,
         backdropFilter: 'blur(30px)' 
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4rem' }}>
-          <div className="brand" style={{ cursor: 'pointer' }} onClick={() => window.location.href = '/'}>
-            <div style={{ 
-              background: 'var(--accent-glow)', 
-              padding: '8px', 
-              borderRadius: '12px', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              boxShadow: '0 0 15px var(--accent-glow)' 
-            }}>
+          <div className="brand" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+            <div className="brand-mark">
               <Activity size={22} color="var(--accent)" strokeWidth={3} />
             </div>
-            TechPulse Pro
+            <div className="brand-copy">
+              <span className="brand-kicker">Signal OS</span>
+              <span className="brand-title">TechPulse Pro</span>
+            </div>
           </div>
           
           <div className="nav-links">
@@ -99,37 +99,22 @@ export default function DashboardLayout({ session }) {
         </div>  {/* end left flex group */}
         <div style={{ position: 'relative' }} ref={menuRef}>
           <button 
+            type="button"
             className="secondary" 
-            onClick={() => setShowMenu(!showMenu)}
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.75rem', 
-              padding: '0.4rem 0.75rem', 
-              background: showMenu ? 'hsla(0, 0%, 100%, 0.05)' : 'transparent',
-              border: '1px solid var(--card-border)',
-              borderRadius: '12px',
-              transition: 'var(--transition-smooth)'
-            }}
+            onClick={() => setShowMenu(prev => !prev)}
+            style={{ background: showMenu ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.04)' }}
           >
-            <div style={{ 
-              width: '28px', 
-              height: '28px', 
-              borderRadius: '50%', 
-              background: 'linear-gradient(135deg, var(--accent) 0%, hsl(217, 91%, 40%) 100%)', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              boxShadow: '0 0 10px var(--accent-glow)' 
-            }}>
+            <div className="profile-trigger">
+              <div className="profile-avatar">
               <User size={16} color="white" />
-            </div>
-            <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
-                {session.user.user_metadata?.full_name || session.user.email.split('@')[0]}
               </div>
-              <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {roleLabel}
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                  {session.user.user_metadata?.full_name || session.user.email.split('@')[0]}
+                </div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {roleLabel}
+                </div>
               </div>
             </div>
             <ChevronDown size={14} style={{ transform: showMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }} />
@@ -159,6 +144,7 @@ export default function DashboardLayout({ session }) {
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                 <button 
+                  type="button"
                   className="secondary" 
                   onClick={handleLogout} 
                   style={{ 

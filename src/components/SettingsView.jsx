@@ -8,7 +8,9 @@ import {
 } from 'lucide-react';
 
 export default function SettingsView({ session }) {
-  const { canAccess, rssLimit, isPremium, isAdmin } = useUserProfile();
+  const { canAccess, hasPermission, rssLimit, isAdmin } = useUserProfile();
+  const canManageSources = hasPermission('workspace.sources.create');
+  const canBulkImport = hasPermission('workspace.sources.bulk_import');
   const [activeTab, setActiveTab] = useState(isAdmin ? 'profile' : 'sources');
   
   /* ── RSS sources ── */
@@ -79,7 +81,7 @@ export default function SettingsView({ session }) {
 
   const addSource = async (e) => {
     e.preventDefault();
-    if (!newName.trim() || !newUrl.trim()) return;
+    if (!canManageSources || !newName.trim() || !newUrl.trim() || sources.length >= rssLimit) return;
     const { error } = await supabase.from('rss_sources').insert({ name: newName.trim(), url: newUrl.trim(), user_id: session.user.id });
     if (error) { flash(setSourceMsg, 'Error: ' + error.message, true); return; }
     setNewName(''); setNewUrl('');
@@ -88,6 +90,7 @@ export default function SettingsView({ session }) {
   };
 
   const deleteSource = async (id) => {
+    if (!hasPermission('workspace.sources.delete')) return;
     await supabase.from('rss_sources').delete().eq('id', id);
     fetchSources();
   };
@@ -96,6 +99,7 @@ export default function SettingsView({ session }) {
   const cancelEdit = () => { setEditId(null); setEditName(''); setEditUrl(''); };
 
   const saveEdit = async (id) => {
+    if (!hasPermission('workspace.sources.update')) return;
     const { error } = await supabase.from('rss_sources').update({ name: editName.trim(), url: editUrl.trim() }).eq('id', id);
     if (error) { flash(setSourceMsg, 'Error: ' + error.message, true); return; }
     cancelEdit();
@@ -105,7 +109,7 @@ export default function SettingsView({ session }) {
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
-    if (!file) return;
+    if (!canBulkImport || !file) return;
     try {
       const text = await file.text();
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
@@ -194,7 +198,7 @@ export default function SettingsView({ session }) {
                   </span>
                   {' / '}{rssLimit === Infinity ? '∞' : rssLimit} sources
                 </div>
-                {isPremium && (
+                {canBulkImport && (
                   <>
                     <input ref={fileInputRef} type="file" accept=".txt" onChange={handleFileUpload} style={{ display: 'none' }} />
                     <button className="secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', borderRadius: '10px' }} onClick={() => fileInputRef.current?.click()}>
@@ -220,7 +224,7 @@ export default function SettingsView({ session }) {
                     <label className="field-label" style={{ fontSize: '0.65rem', fontWeight: 800 }}>SOURCE ENDPOINT</label>
                     <input value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="https://..." style={{ marginBottom: 0, borderRadius: '10px' }} />
                   </div>
-                  <button type="submit" style={{ padding: '0.75rem 1.75rem', borderRadius: '10px' }}><Plus size={18} /> Register</button>
+                  <button type="submit" disabled={!canManageSources || sources.length >= rssLimit} style={{ padding: '0.75rem 1.75rem', borderRadius: '10px' }}><Plus size={18} /> Register</button>
                 </form>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.25rem' }}>

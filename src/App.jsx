@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './supabase';
-import { UserProfileProvider } from './context/UserProfileContext';
+import { UserProfileProvider, useUserProfile } from './context/UserProfileContext';
 import AuthView from './components/AuthView';
 import DashboardLayout from './components/DashboardLayout';
 import DashboardView from './components/DashboardView';
@@ -20,6 +20,28 @@ function AuthenticatedLayout({ session }) {
       <DashboardLayout session={session} />
     </UserProfileProvider>
   );
+}
+
+function AccessDenied({ title = 'Access Restricted', description = 'Your current role does not allow access to this area.' }) {
+  return (
+    <div className="auth-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-color)' }}>
+      <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', maxWidth: '520px' }}>
+        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔒</div>
+        <h2 style={{ fontSize: '1.9rem', fontWeight: 900, marginBottom: '0.75rem' }}>{title}</h2>
+        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function PermissionRoute({ requireAny, children }) {
+  const { hasAnyPermission } = useUserProfile();
+
+  if (!hasAnyPermission(requireAny)) {
+    return <AccessDenied />;
+  }
+
+  return children;
 }
 
 function App() {
@@ -136,19 +158,59 @@ function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/auth" element={session ? <Navigate to="/" replace /> : <AuthView />} />
         {!session ? (
-          <>
-            <Route path="/auth" element={<AuthView />} />
-            <Route path="*" element={<Navigate to="/auth" replace />} />
-          </>
+          <Route path="*" element={<Navigate to="/auth" replace />} />
         ) : (
           <Route element={<AuthenticatedLayout session={session} />}>
-            <Route path="/" element={<DashboardView session={session} />} />
-            <Route path="/settings" element={<SettingsView session={session} />} />
-            <Route path="/admin" element={<AdminView session={session} />} />
-            <Route path="/brief" element={<MorningBriefView session={session} />} />
-            <Route path="/search" element={<SemanticSearchView session={session} />} />
-            <Route path="/radar" element={<RadarView session={session} />} />
+            <Route
+              path="/"
+              element={(
+                <PermissionRoute requireAny={['platform.access', 'workspace.dashboard.view']}>
+                  <DashboardView session={session} />
+                </PermissionRoute>
+              )}
+            />
+            <Route
+              path="/settings"
+              element={(
+                <PermissionRoute requireAny={['workspace.settings.view']}>
+                  <SettingsView session={session} />
+                </PermissionRoute>
+              )}
+            />
+            <Route
+              path="/admin"
+              element={(
+                <PermissionRoute requireAny={['platform.access']}>
+                  <AdminView session={session} />
+                </PermissionRoute>
+              )}
+            />
+            <Route
+              path="/brief"
+              element={(
+                <PermissionRoute requireAny={['platform.reports.view', 'workspace.brief.view']}>
+                  <MorningBriefView session={session} />
+                </PermissionRoute>
+              )}
+            />
+            <Route
+              path="/search"
+              element={(
+                <PermissionRoute requireAny={['workspace.search.use']}>
+                  <SemanticSearchView session={session} />
+                </PermissionRoute>
+              )}
+            />
+            <Route
+              path="/radar"
+              element={(
+                <PermissionRoute requireAny={['workspace.radar.view']}>
+                  <RadarView session={session} />
+                </PermissionRoute>
+              )}
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         )}

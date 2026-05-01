@@ -1,39 +1,31 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { supabaseAdmin } from '../supabase';
+import { invokeAdminFunction } from '../adminApi';
 import { useUserProfile } from '../context/UserProfileContext';
 import { Newspaper, ChevronRight, ThumbsUp, ThumbsDown, Bookmark, ExternalLink, Zap, Globe, Users } from 'lucide-react';
 
 export default function MorningBriefView({ session }) {
-  const { isAdmin } = useUserProfile();
+  const { hasPermission } = useUserProfile();
+  const canViewPlatformReport = hasPermission('platform.reports.view');
   const [digest, setDigest] = useState(null);
   const [adminReport, setAdminReport] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     async function fetchDigest() {
       setLoading(true);
+      setError(null);
 
-      if (isAdmin && supabaseAdmin) {
-        // Admin sees a cross-tenant delivery report
-        const [{ data: articles }, { data: tenants }] = await Promise.all([
-          supabaseAdmin.from('articles').select('user_id, is_delivered, score, created_at, source').order('created_at', { ascending: false }).limit(200),
-          supabaseAdmin.from('tenant_profiles').select('user_id, full_name, email, role'),
-        ]);
-
-        const tenantMap = {};
-        (tenants || []).forEach(t => { tenantMap[t.user_id] = t; });
-
-        // Group articles by tenant
-        const byTenant = {};
-        (articles || []).forEach(a => {
-          if (!byTenant[a.user_id]) byTenant[a.user_id] = { total: 0, delivered: 0, pending: 0 };
-          byTenant[a.user_id].total++;
-          if (a.is_delivered) byTenant[a.user_id].delivered++;
-          else byTenant[a.user_id].pending++;
-        });
-
-        setAdminReport({ byTenant, tenantMap });
+      if (canViewPlatformReport) {
+        try {
+          const data = await invokeAdminFunction('admin-get-brief-report', {
+            userId: session.user.id,
+          });
+          setAdminReport(data.adminReport ?? { byTenant: {}, tenantMap: {} });
+        } catch (err) {
+          setError(err.message || String(err));
+        }
       } else {
         // Regular user personal briefing
         const { data } = await supabase
@@ -61,7 +53,7 @@ export default function MorningBriefView({ session }) {
       setLoading(false);
     }
     fetchDigest();
-  }, [session, isAdmin]);
+  }, [canViewPlatformReport, session]);
 
   const handleFeedback = async (articleId, signal) => {
     await supabase.from('user_feedback').insert({
@@ -74,8 +66,12 @@ export default function MorningBriefView({ session }) {
 
   if (loading) return <div className="p-8 opacity-50">Loading briefing...</div>;
 
+  if (error) {
+    return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--semantic-danger)' }}>{error}</div>;
+  }
+
   // ── ADMIN: System Delivery Report ─────────────────────────────────────────
-  if (isAdmin && adminReport) {
+  if (canViewPlatformReport && adminReport) {
     const { byTenant, tenantMap } = adminReport;
     const tenantIds = Object.keys(byTenant);
     const totalDelivered = tenantIds.reduce((s, id) => s + byTenant[id].delivered, 0);

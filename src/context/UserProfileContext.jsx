@@ -4,35 +4,133 @@ import { supabase } from '../supabase';
 // ── Context ────────────────────────────────────────────────────────────────────
 const UserProfileContext = createContext(null);
 
-// ── Feature gate definitions ───────────────────────────────────────────────────
-// FEATURE_GATES = which roles can ACCESS a feature (page content / actions)
-const FEATURE_GATES = {
-  semanticSearch:    ['admin', 'auditor', 'premium'],
-  webhookDelivery:   ['premium'],                   // Consumers only — admins have no personal articles
-  bulkImport:        ['admin', 'premium'],
-  inferenceRules:    ['admin', 'premium'],
-  adminConsole:      ['admin', 'auditor'],
-  assignRoles:       ['admin'],
-  deleteUsers:       ['admin'],
-  articleFeedback:   ['premium', 'user'],   // admin observes, doesn't train
+// ── Permission model ───────────────────────────────────────────────────────────
+const PERMISSIONS = {
+  platformAccess: 'platform.access',
+  platformMetricsView: 'platform.metrics.view',
+  platformTenantsView: 'platform.tenants.view',
+  platformTenantsManage: 'platform.tenants.manage',
+  platformRolesAssign: 'platform.roles.assign',
+  platformUsersDelete: 'platform.users.delete',
+  platformReportsView: 'platform.reports.view',
+  workspaceDashboardView: 'workspace.dashboard.view',
+  workspaceSettingsView: 'workspace.settings.view',
+  workspaceSourcesView: 'workspace.sources.view',
+  workspaceSourcesCreate: 'workspace.sources.create',
+  workspaceSourcesUpdate: 'workspace.sources.update',
+  workspaceSourcesDelete: 'workspace.sources.delete',
+  workspaceSourcesBulkImport: 'workspace.sources.bulk_import',
+  workspaceRulesView: 'workspace.rules.view',
+  workspaceRulesManage: 'workspace.rules.manage',
+  workspaceSearchUse: 'workspace.search.use',
+  workspaceRadarView: 'workspace.radar.view',
+  workspaceBriefView: 'workspace.brief.view',
+  workspaceFeedbackSubmit: 'workspace.feedback.submit',
+  workspaceWebhooksManage: 'workspace.webhooks.manage',
 };
 
-// NAV_GATES = which roles see each nav link
-// Operators (admin/auditor) manage the platform — no personal feeds/briefs/radar
-const NAV_GATES = {
-  dashboard:      ['admin', 'auditor', 'premium', 'user'], // all (different view per role)
-  settings:       ['admin', 'auditor', 'premium', 'user'], // all (different tabs per role)
-  morningBrief:   ['premium', 'user'],   // personal digest — operators have no pipeline
-  semanticSearch: ['premium'],           // personal vector search — operators have no articles
-  radar:          ['premium', 'user'],   // personal RSS signal — operators have no feeds
-  adminConsole:   ['admin', 'auditor'],  // management panel
+const ROLE_PERMISSIONS = {
+  owner: Object.values(PERMISSIONS),
+  admin: Object.values(PERMISSIONS),
+  operator: [
+    PERMISSIONS.platformAccess,
+    PERMISSIONS.platformMetricsView,
+    PERMISSIONS.platformTenantsView,
+    PERMISSIONS.platformTenantsManage,
+    PERMISSIONS.platformReportsView,
+  ],
+  auditor: [
+    PERMISSIONS.platformAccess,
+    PERMISSIONS.platformMetricsView,
+    PERMISSIONS.platformTenantsView,
+    PERMISSIONS.platformReportsView,
+  ],
+  premium_member: [
+    PERMISSIONS.workspaceDashboardView,
+    PERMISSIONS.workspaceSettingsView,
+    PERMISSIONS.workspaceSourcesView,
+    PERMISSIONS.workspaceSourcesCreate,
+    PERMISSIONS.workspaceSourcesUpdate,
+    PERMISSIONS.workspaceSourcesDelete,
+    PERMISSIONS.workspaceSourcesBulkImport,
+    PERMISSIONS.workspaceRulesView,
+    PERMISSIONS.workspaceRulesManage,
+    PERMISSIONS.workspaceSearchUse,
+    PERMISSIONS.workspaceRadarView,
+    PERMISSIONS.workspaceBriefView,
+    PERMISSIONS.workspaceFeedbackSubmit,
+    PERMISSIONS.workspaceWebhooksManage,
+  ],
+  premium: [
+    PERMISSIONS.workspaceDashboardView,
+    PERMISSIONS.workspaceSettingsView,
+    PERMISSIONS.workspaceSourcesView,
+    PERMISSIONS.workspaceSourcesCreate,
+    PERMISSIONS.workspaceSourcesUpdate,
+    PERMISSIONS.workspaceSourcesDelete,
+    PERMISSIONS.workspaceSourcesBulkImport,
+    PERMISSIONS.workspaceRulesView,
+    PERMISSIONS.workspaceRulesManage,
+    PERMISSIONS.workspaceSearchUse,
+    PERMISSIONS.workspaceRadarView,
+    PERMISSIONS.workspaceBriefView,
+    PERMISSIONS.workspaceFeedbackSubmit,
+    PERMISSIONS.workspaceWebhooksManage,
+  ],
+  member: [
+    PERMISSIONS.workspaceDashboardView,
+    PERMISSIONS.workspaceSettingsView,
+    PERMISSIONS.workspaceSourcesView,
+    PERMISSIONS.workspaceSourcesCreate,
+    PERMISSIONS.workspaceSourcesUpdate,
+    PERMISSIONS.workspaceSourcesDelete,
+    PERMISSIONS.workspaceRadarView,
+    PERMISSIONS.workspaceBriefView,
+    PERMISSIONS.workspaceFeedbackSubmit,
+  ],
+  user: [
+    PERMISSIONS.workspaceDashboardView,
+    PERMISSIONS.workspaceSettingsView,
+    PERMISSIONS.workspaceSourcesView,
+    PERMISSIONS.workspaceSourcesCreate,
+    PERMISSIONS.workspaceSourcesUpdate,
+    PERMISSIONS.workspaceSourcesDelete,
+    PERMISSIONS.workspaceRadarView,
+    PERMISSIONS.workspaceBriefView,
+    PERMISSIONS.workspaceFeedbackSubmit,
+  ],
+};
+
+// Feature aliases preserve the existing component API while delegating to permissions.
+const FEATURE_PERMISSIONS = {
+  semanticSearch: [PERMISSIONS.workspaceSearchUse],
+  webhookDelivery: [PERMISSIONS.workspaceWebhooksManage],
+  bulkImport: [PERMISSIONS.workspaceSourcesBulkImport],
+  inferenceRules: [PERMISSIONS.workspaceRulesManage],
+  adminConsole: [PERMISSIONS.platformAccess],
+  assignRoles: [PERMISSIONS.platformRolesAssign],
+  deleteUsers: [PERMISSIONS.platformUsersDelete],
+  articleFeedback: [PERMISSIONS.workspaceFeedbackSubmit],
+};
+
+const NAV_PERMISSIONS = {
+  dashboard: [PERMISSIONS.platformAccess, PERMISSIONS.workspaceDashboardView],
+  settings: [PERMISSIONS.workspaceSettingsView],
+  morningBrief: [PERMISSIONS.platformReportsView, PERMISSIONS.workspaceBriefView],
+  semanticSearch: [PERMISSIONS.workspaceSearchUse],
+  radar: [PERMISSIONS.workspaceRadarView],
+  adminConsole: [PERMISSIONS.platformAccess],
 };
 
 // RSS source limits per role
 export const RSS_LIMITS = {
   admin:   Infinity,
+  owner:   Infinity,
+  operator: 0,
   auditor: 0,         // auditors cannot add sources
+  premium_member: 50,
   premium: 50,
+  member:  5,
   user:    5,
 };
 
@@ -75,23 +173,29 @@ export function UserProfileProvider({ session, children }) {
   }, [session]);
 
   // ── Derived helpers ──────────────────────────────────────────────────────────
-  const role     = profile.role;
-  const isAdmin  = role === 'admin';
+  const role      = profile.role;
+  const permissions = ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS.user;
+  const isAdmin   = role === 'admin' || role === 'owner';
   const isAuditor = role === 'auditor';
-  const isPremium = role === 'admin' || role === 'premium';  // admin has all premium perks
+  const isPremium = role === 'premium' || role === 'premium_member';
+
+  function hasPermission(permission) {
+    return permissions.includes(permission);
+  }
+
+  function hasAnyPermission(requiredPermissions = []) {
+    if (requiredPermissions.length === 0) return true;
+    return requiredPermissions.some(hasPermission);
+  }
 
   /** Returns true if the current user's role can access a named feature (content gate). */
   function canAccess(featureName) {
-    const allowed = FEATURE_GATES[featureName];
-    if (!allowed) return true;
-    return allowed.includes(role);
+    return hasAnyPermission(FEATURE_PERMISSIONS[featureName] ?? []);
   }
 
   /** Returns true if the current user's role should see a nav link. */
   function canNav(navItem) {
-    const allowed = NAV_GATES[navItem];
-    if (!allowed) return true;
-    return allowed.includes(role);
+    return hasAnyPermission(NAV_PERMISSIONS[navItem] ?? []);
   }
 
   /** Returns the RSS source limit for the current role. */
@@ -100,16 +204,24 @@ export function UserProfileProvider({ session, children }) {
   /** Human-readable label for the current role. */
   const roleLabel = {
     admin:   '🛡️ Super Admin',
+    owner:   '🛡️ Owner',
+    operator: '🧭 Operator',
     auditor: '👁️ Auditor',
     premium: '⭐ Premium Member',
+    premium_member: '⭐ Premium Member',
+    member:  'Pro Member',
     user:    'Pro Member',
   }[role] ?? 'Pro Member';
 
   /** Short badge text (for nav, tables) */
   const roleBadge = {
     admin:   { text: '🛡️ Admin',   color: '#6ee7b7', bg: 'rgba(16,185,129,0.1)',  border: 'rgba(16,185,129,0.2)' },
+    owner:   { text: '🛡️ Owner',   color: '#6ee7b7', bg: 'rgba(16,185,129,0.1)',  border: 'rgba(16,185,129,0.2)' },
+    operator:{ text: '🧭 Operator', color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.2)' },
     auditor: { text: '👁️ Auditor', color: '#93c5fd', bg: 'rgba(59,130,246,0.1)',  border: 'rgba(59,130,246,0.2)' },
     premium: { text: '⭐ Premium',  color: '#fcd34d', bg: 'rgba(251,191,36,0.1)',  border: 'rgba(251,191,36,0.2)' },
+    premium_member: { text: '⭐ Premium',  color: '#fcd34d', bg: 'rgba(251,191,36,0.1)',  border: 'rgba(251,191,36,0.2)' },
+    member:  { text: 'Standard',    color: 'var(--text-secondary)', bg: 'rgba(255,255,255,0.03)', border: 'var(--card-border)' },
     user:    { text: 'Standard',    color: 'var(--text-secondary)', bg: 'rgba(255,255,255,0.03)', border: 'var(--card-border)' },
   }[role] ?? { text: 'Standard', color: 'var(--text-secondary)', bg: 'rgba(255,255,255,0.03)', border: 'var(--card-border)' };
 
@@ -119,11 +231,15 @@ export function UserProfileProvider({ session, children }) {
     isAdmin,
     isAuditor,
     isPremium,
+    permissions,
+    hasPermission,
+    hasAnyPermission,
     canAccess,
     canNav,
     rssLimit,
     roleLabel,
     roleBadge,
+    permissionKeys: PERMISSIONS,
   };
 
   return (

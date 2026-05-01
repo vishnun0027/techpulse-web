@@ -18,12 +18,25 @@ CREATE TABLE IF NOT EXISTS tenant_profiles (
     email               TEXT,
     full_name           TEXT,
     is_admin            BOOLEAN DEFAULT FALSE,
+    role                TEXT DEFAULT 'user',
+    status              TEXT DEFAULT 'active',
     slack_webhook_url   TEXT,
     discord_webhook_url TEXT,
     api_token           TEXT,
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure status column exists (for backward compatibility)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'tenant_profiles' AND column_name = 'status'
+  ) THEN
+    ALTER TABLE tenant_profiles ADD COLUMN status TEXT DEFAULT 'active';
+  END IF;
+END $$;
 
 -- Articles
 CREATE TABLE IF NOT EXISTS articles (
@@ -75,6 +88,39 @@ CREATE TABLE IF NOT EXISTS telemetry (
     timestamp   TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Admin Audit Log
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_user_id  UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    action         TEXT NOT NULL,
+    target_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    metadata       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'tenant_profiles_role_check'
+  ) THEN
+    ALTER TABLE tenant_profiles
+      ADD CONSTRAINT tenant_profiles_role_check
+      CHECK (role IN ('owner', 'admin', 'operator', 'auditor', 'premium_member', 'premium', 'member', 'user'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'tenant_profiles_status_check'
+  ) THEN
+    ALTER TABLE tenant_profiles
+      ADD CONSTRAINT tenant_profiles_status_check
+      CHECK (status IN ('active', 'pending', 'suspended'));
+  END IF;
+END $$;
+
 
 -- 3. INDEXES
 
@@ -94,16 +140,24 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_service     ON telemetry(service);     
 CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp   ON telemetry(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_telemetry_metric_name ON telemetry(metric_name);   -- ✅ From Original
 
+-- Admin Audit Log
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_actor_user_id ON admin_audit_log(actor_user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_target_user_id ON admin_audit_log(target_user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at ON admin_audit_log(created_at DESC);
+
 
 -- 4. TRIGGERS
+DROP TRIGGER IF EXISTS update_tenant_profiles_updated_at ON tenant_profiles;
 CREATE TRIGGER update_tenant_profiles_updated_at
     BEFORE UPDATE ON tenant_profiles
     FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_rss_sources_updated_at ON rss_sources;
 CREATE TRIGGER update_rss_sources_updated_at
     BEFORE UPDATE ON rss_sources
     FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_app_config_updated_at ON app_config;
 CREATE TRIGGER update_app_config_updated_at
     BEFORE UPDATE ON app_config
     FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
@@ -115,28 +169,55 @@ ALTER TABLE app_config      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rss_sources     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE articles        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE telemetry       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_audit_log ENABLE ROW LEVEL SECURITY;
 
 -- Tenant Profiles: granular policies ✅
+DROP POLICY IF EXISTS "Users can view own profile" ON tenant_profiles;
 CREATE POLICY "Users can view own profile"   ON tenant_profiles FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own profile" ON tenant_profiles;
 CREATE POLICY "Users can insert own profile" ON tenant_profiles FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own profile" ON tenant_profiles;
 CREATE POLICY "Users can update own profile" ON tenant_profiles FOR UPDATE USING (auth.uid() = user_id);
 
 -- App Config: granular policies ✅
+DROP POLICY IF EXISTS "Users can view own config" ON app_config;
 CREATE POLICY "Users can view own config"   ON app_config FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own config" ON app_config;
 CREATE POLICY "Users can insert own config" ON app_config FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own config" ON app_config;
 CREATE POLICY "Users can update own config" ON app_config FOR UPDATE USING (auth.uid() = user_id);
 
 -- RSS Sources: granular + DELETE ✅
+DROP POLICY IF EXISTS "Users can view own sources" ON rss_sources;
 CREATE POLICY "Users can view own sources"   ON rss_sources FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own sources" ON rss_sources;
 CREATE POLICY "Users can insert own sources" ON rss_sources FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own sources" ON rss_sources;
 CREATE POLICY "Users can update own sources" ON rss_sources FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own sources" ON rss_sources;
 CREATE POLICY "Users can delete own sources" ON rss_sources FOR DELETE USING (auth.uid() = user_id);
 
 -- Articles: read-only for users (pipeline uses Service Role)
+DROP POLICY IF EXISTS "Users can view own articles" ON articles;
 CREATE POLICY "Users can view own articles" ON articles FOR SELECT USING (auth.uid() = user_id);
 
 -- Telemetry: read-only for users
+DROP POLICY IF EXISTS "Users can view own telemetry" ON telemetry;
 CREATE POLICY "Users can view own telemetry" ON telemetry FOR SELECT USING (auth.uid() = user_id);
+
+-- Admin audit log: operators can see their own audit records only
+DROP POLICY IF EXISTS "Actors can view own audit log" ON admin_audit_log;
+CREATE POLICY "Actors can view own audit log"
+  ON admin_audit_log
+  FOR SELECT
+  USING (auth.uid() = actor_user_id);
 
 
 -- 6. AUTO-PROFILE TRIGGER (Self-Serve Signup)
@@ -151,6 +232,11 @@ BEGIN
     COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
     FALSE
   );
+
+  UPDATE public.tenant_profiles
+    SET role = 'user', status = 'active'
+    WHERE user_id = NEW.id;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

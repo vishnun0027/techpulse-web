@@ -15,6 +15,7 @@ export default function AuthView() {
 
   const handleAuth = async (e) => {
     e.preventDefault();
+    setLoading(true);
     try {
       if (isSignUp) {
         if (password !== confirmPassword) {
@@ -51,132 +52,155 @@ export default function AuthView() {
 
   return (
     <div className="auth-wrapper">
-      <div className="glass-panel auth-card">
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem', fontWeight: 800, letterSpacing: '-0.02em' }}>🤖 TechPulse Pro</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Universal intelligence coordination system.</p>
+      <div className="auth-shell">
+        <div className="glass-panel auth-aside">
+          <div>
+            <div className="auth-badge">
+              <span style={{ width: 8, height: 8, borderRadius: '999px', background: 'var(--accent)' }} />
+              Live intelligence workspace
+            </div>
+            <h1>
+              Turn signal overload into
+              <span className="auth-gradient"> a clear daily brief.</span>
+            </h1>
+            <p className="auth-lead">
+              TechPulse pulls high-value technical developments into one modern control surface so teams can spot momentum, risk, and strategic openings without digging through ten tools.
+            </p>
+            <div className="auth-highlights">
+              <div className="auth-highlight">
+                <span className="auth-highlight-label">Radar</span>
+                <strong>Track live emerging themes</strong>
+              </div>
+              <div className="auth-highlight">
+                <span className="auth-highlight-label">Briefing</span>
+                <strong>Start every day with a sharper summary</strong>
+              </div>
+              <div className="auth-highlight">
+                <span className="auth-highlight-label">Search</span>
+                <strong>Query your archive by meaning, not keywords</strong>
+              </div>
+            </div>
+          </div>
+          <div className="auth-note">
+            Built for operators, researchers, and product teams who need something calmer and smarter than a traditional admin dashboard.
+          </div>
         </div>
 
-        <form onSubmit={handleAuth}>
-          {isSignUp && (
-            <div style={{ animation: 'fadeIn 0.3s ease' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Full Name</label>
+        <div className="glass-panel auth-card">
+          <div className="auth-card-header">
+            <div className="auth-badge" style={{ marginBottom: '1rem' }}>TechPulse Pro</div>
+            <h2>{isSignUp ? 'Create your workspace' : 'Welcome back'}</h2>
+            <p>{isSignUp ? 'Set up your identity and start curating your signal pipeline.' : 'Access your intelligence dashboard and continue where you left off.'}</p>
+          </div>
+
+          <form className="auth-form" onSubmit={handleAuth}>
+            {isSignUp && (
+              <div style={{ animation: 'fadeIn 0.3s ease' }}>
+                <label className="field-label">Full Name</label>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                  placeholder="e.g. Vishnu Vardhan"
+                  style={{ marginBottom: '1rem' }}
+                />
+              </div>
+            )}
+            <div>
+              <label className="field-label">Email</label>
               <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="e.g. Vishnu Vardhan"
-                style={{ marginBottom: '1rem' }}
+                placeholder="you@domain.com"
               />
             </div>
-          )}
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              placeholder="you@domain.com"
-            />
-          </div>
-          <div style={{ position: 'relative', marginBottom: isSignUp ? '1rem' : '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Password</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="••••••••"
-                style={{ paddingRight: '2.5rem', marginBottom: 0 }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: 'absolute',
-                  right: '0.5rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'transparent',
-                  padding: '0.25rem',
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: 'var(--text-secondary)'
-                }}
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </div>
-          {isSignUp && (
-            <div style={{ animation: 'fadeIn 0.3s ease', marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Confirm Password</label>
+            <div style={{ position: 'relative', marginBottom: '1rem' }}>
+              <label className="field-label">Password</label>
               <div style={{ position: 'relative' }}>
                 <input
-                  type={showConfirmPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   required
                   placeholder="••••••••"
-                  style={{ paddingRight: '2.5rem', marginBottom: 0 }}
+                  style={{ paddingRight: '2.8rem', marginBottom: 0 }}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="secondary"
                   style={{
                     position: 'absolute',
-                    right: '0.5rem',
+                    right: '0.35rem',
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    background: 'transparent',
-                    padding: '0.25rem',
-                    border: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    color: 'var(--text-secondary)'
+                    padding: '0.4rem',
+                    minWidth: 'unset',
+                    borderRadius: '10px'
                   }}
                 >
-                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             </div>
-          )}
-          <button type="submit" style={{ width: '100%', justifyContent: 'center' }} disabled={loading}>
-            {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Access Dashboard')}
-          </button>
-        </form>
+            {isSignUp && (
+              <div style={{ animation: 'fadeIn 0.3s ease', marginBottom: '1rem' }}>
+                <label className="field-label">Confirm Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    placeholder="••••••••"
+                    style={{ paddingRight: '2.8rem', marginBottom: 0 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="secondary"
+                    style={{
+                      position: 'absolute',
+                      right: '0.35rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      padding: '0.4rem',
+                      minWidth: 'unset',
+                      borderRadius: '10px'
+                    }}
+                  >
+                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+            )}
+            <button type="submit" style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }} disabled={loading}>
+              {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Access Dashboard')}
+            </button>
+          </form>
 
-        <div style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.875rem' }}>
-          <span style={{ color: 'var(--text-secondary)' }}>
-            {isSignUp ? 'Already configured?' : 'New to TechPulse?'}
-          </span>
-          <button 
-            type="button" 
-            className="secondary" 
-            style={{ padding: '0.25rem 0.5rem', marginLeft: '0.5rem', fontSize: '0.875rem' }}
-            onClick={() => setIsSignUp(!isSignUp)}
-          >
-            {isSignUp ? 'Log In' : 'Sign Up'}
-          </button>
+          <div className="auth-card-footer">
+            <span>{isSignUp ? 'Already configured?' : 'New to TechPulse?'}</span>
+            <button
+              type="button"
+              className="secondary"
+              style={{ padding: '0.4rem 0.75rem', marginLeft: '0.5rem', fontSize: '0.875rem' }}
+              onClick={() => setIsSignUp(!isSignUp)}
+            >
+              {isSignUp ? 'Log In' : 'Sign Up'}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Notification Modal */}
       {notification && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-          animation: 'fadeIn 0.3s ease'
-        }}>
-          <div className="glass-panel" style={{ 
+        <div className="notification-overlay" style={{ animation: 'fadeIn 0.3s ease' }}>
+          <div className="glass-panel notification-card" style={{ 
             padding: '2.5rem', 
-            maxWidth: '380px', 
-            width: '90%',
             textAlign: 'center',
             border: `1px solid ${notification.type === 'error' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}`
           }}>

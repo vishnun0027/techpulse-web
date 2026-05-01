@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
-import { supabase, supabaseAdmin } from '../supabase';
+import { supabase } from '../supabase';
+import { invokeAdminFunction } from '../adminApi';
 import { useUserProfile } from '../context/UserProfileContext';
 import { formatDistanceToNow } from 'date-fns';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Database, Send, Radio, ShieldCheck, Zap, Activity as ActivityIcon, Search as SearchIcon, Filter, Globe, Newspaper, User, ChevronRight, LayoutGrid, List } from 'lucide-react';
 
 export default function DashboardView({ session }) {
-  const { isAdmin } = useUserProfile();
-  const db = isAdmin && supabaseAdmin ? supabaseAdmin : supabase;
+  const { hasPermission } = useUserProfile();
+  const isPlatformOperator = hasPermission('platform.access');
+  const db = supabase;
 
   const [stats, setStats] = useState({ collected: 0, delivered: 0, ready: 0, sources: 0, noiseRatio: 0, avgScore: 0, sourceHealth: 0 });
   const [chartData, setChartData] = useState([]);
@@ -25,6 +27,7 @@ export default function DashboardView({ session }) {
   const [sourceOptions, setSourceOptions] = useState([]);
   const [debouncedFilters, setDebouncedFilters] = useState(filters);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list' for tenant overview
+  const [platformError, setPlatformError] = useState(null);
 
   useEffect(() => {
     const timer = setTimeout(() => { setDebouncedFilters(filters); setPage(1); }, 400);
@@ -34,100 +37,86 @@ export default function DashboardView({ session }) {
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+      setPlatformError(null);
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
       sevenDaysAgo.setHours(0, 0, 0, 0);
 
-      const [
-        { count: collectedCount },
-        { count: deliveredCount },
-        { count: readyCount },
-        { count: sourcesCount },
-        { data: chartArticles },
-        { data: latestCollector },
-        { data: latestSummarizer }
-      ] = await Promise.all([
-        db.from('articles').select('*', { count: 'exact', head: true }),
-        db.from('articles').select('*', { count: 'exact', head: true }).eq('is_delivered', true),
-        db.from('articles').select('*', { count: 'exact', head: true }).eq('is_delivered', false).gte('score', 3.0),
-        db.from('rss_sources').select('*', { count: 'exact', head: true }),
-        db.from('articles').select('created_at').eq('is_delivered', true).gte('created_at', sevenDaysAgo.toISOString()),
-        db.from('telemetry').select('metrics').eq('service', 'collector').order('timestamp', { ascending: false }).limit(1),
-        db.from('telemetry').select('metrics').eq('service', 'summarizer').order('timestamp', { ascending: false }).limit(1)
-      ]);
-
-      const collMetrics = latestCollector?.[0]?.metrics || {};
-      const summMetrics = latestSummarizer?.[0]?.metrics || {};
-
-      setStats({
-        collected: collectedCount || 0,
-        delivered: deliveredCount || 0,
-        ready: readyCount || 0,
-        sources: sourcesCount || 0,
-        noiseRatio: collMetrics.noise_ratio || 0,
-        avgScore: summMetrics.avg_score || 0,
-        sourceHealth: collMetrics.total_sources > 0
-          ? Math.round(((collMetrics.total_sources - collMetrics.error_count) / collMetrics.total_sources) * 100)
-          : 0
-      });
-
-      const deliveryCounts = {};
-      const today = new Date();
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        deliveryCounts[d.toLocaleDateString('en-US', { weekday: 'short' })] = 0;
-      }
-      (chartArticles || []).forEach(a => {
-        const k = new Date(a.created_at).toLocaleDateString('en-US', { weekday: 'short' });
-        if (deliveryCounts[k] !== undefined) deliveryCounts[k]++;
-      });
-      setChartData(Object.keys(deliveryCounts).map(k => ({ name: k, delivered: deliveryCounts[k] })));
-
-      if (isAdmin && supabaseAdmin) {
-        const { data: tenants } = await supabaseAdmin.from('tenant_profiles').select('user_id, full_name, email, role').order('full_name');
-        
-        if (selectedUserId === 'all') {
-          const [{ data: allArticles }, { data: allSources }] = await Promise.all([
-            supabaseAdmin.from('articles').select('user_id, is_delivered, created_at'),
-            supabaseAdmin.from('rss_sources').select('user_id'),
-          ]);
-
-          const artMap = {};
-          (allArticles || []).forEach(a => {
-            if (!artMap[a.user_id]) artMap[a.user_id] = { total: 0, delivered: 0, lastActivity: null };
-            artMap[a.user_id].total++;
-            if (a.is_delivered) artMap[a.user_id].delivered++;
-            if (!artMap[a.user_id].lastActivity || a.created_at > artMap[a.user_id].lastActivity)
-              artMap[a.user_id].lastActivity = a.created_at;
+      if (isPlatformOperator) {
+        try {
+          const data = await invokeAdminFunction('admin-get-platform-intelligence', {
+            userId: session.user.id,
+            selectedUserId,
           });
-          const srcMap = {};
-          (allSources || []).forEach(s => { srcMap[s.user_id] = (srcMap[s.user_id] || 0) + 1; });
 
-          setTenantStats((tenants || []).map(t => ({
-            ...t,
-            totalArticles: artMap[t.user_id]?.total || 0,
-            deliveredArticles: artMap[t.user_id]?.delivered || 0,
-            lastActivity: artMap[t.user_id]?.lastActivity || null,
-            sourcesCount: srcMap[t.user_id] || 0,
-          })).sort((a, b) => b.totalArticles - a.totalArticles));
+          setStats(data.stats ?? { collected: 0, delivered: 0, ready: 0, sources: 0, noiseRatio: 0, avgScore: 0, sourceHealth: 0 });
+          setChartData(data.chartData ?? []);
+          setTenantStats(data.tenantStats ?? []);
+          setInspectingUser(data.inspectingUser ?? null);
+          setInspectingSources(data.inspectingSources ?? []);
+          setArticles(data.articles ?? []);
+          setFilteredCount(data.filteredCount ?? 0);
+          setSourceOptions(data.sourceOptions ?? []);
+        } catch (err) {
+          setPlatformError(err.message || String(err));
+          setTenantStats([]);
           setInspectingUser(null);
-        } else {
-          const [{ data: userProfile }, { data: userSources }, { data: userArticles, count: userMatchCount }] = await Promise.all([
-            supabaseAdmin.from('tenant_profiles').select('*').eq('user_id', selectedUserId).single(),
-            supabaseAdmin.from('rss_sources').select('*').eq('user_id', selectedUserId).order('name'),
-            supabaseAdmin.from('articles').select('*', { count: 'exact' }).eq('user_id', selectedUserId).order('created_at', { ascending: false }).limit(20)
-          ]);
-          setInspectingUser(userProfile);
-          setInspectingSources(userSources || []);
-          setArticles(userArticles || []);
-          setFilteredCount(userMatchCount || 0);
-          setTenantStats(tenants || []);
+          setInspectingSources([]);
+          setArticles([]);
+          setFilteredCount(0);
+          setStats({ collected: 0, delivered: 0, ready: 0, sources: 0, noiseRatio: 0, avgScore: 0, sourceHealth: 0 });
+          setChartData([]);
         }
       } else {
+        const [
+          { count: collectedCount },
+          { count: deliveredCount },
+          { count: readyCount },
+          { count: sourcesCount },
+          { data: chartArticles },
+          { data: latestCollector },
+          { data: latestSummarizer }
+        ] = await Promise.all([
+          db.from('articles').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id),
+          db.from('articles').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('is_delivered', true),
+          db.from('articles').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('is_delivered', false).gte('score', 3.0),
+          db.from('rss_sources').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id),
+          db.from('articles').select('created_at').eq('user_id', session.user.id).eq('is_delivered', true).gte('created_at', sevenDaysAgo.toISOString()),
+          db.from('telemetry').select('metrics').eq('user_id', session.user.id).eq('service', 'collector').order('timestamp', { ascending: false }).limit(1),
+          db.from('telemetry').select('metrics').eq('user_id', session.user.id).eq('service', 'summarizer').order('timestamp', { ascending: false }).limit(1)
+        ]);
+
+        const collMetrics = latestCollector?.[0]?.metrics || {};
+        const summMetrics = latestSummarizer?.[0]?.metrics || {};
+
+        setStats({
+          collected: collectedCount || 0,
+          delivered: deliveredCount || 0,
+          ready: readyCount || 0,
+          sources: sourcesCount || 0,
+          noiseRatio: collMetrics.noise_ratio || 0,
+          avgScore: summMetrics.avg_score || 0,
+          sourceHealth: collMetrics.total_sources > 0
+            ? Math.round(((collMetrics.total_sources - collMetrics.error_count) / collMetrics.total_sources) * 100)
+            : 0
+        });
+
+        const deliveryCounts = {};
+        const today = new Date();
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          deliveryCounts[d.toLocaleDateString('en-US', { weekday: 'short' })] = 0;
+        }
+        (chartArticles || []).forEach(a => {
+          const k = new Date(a.created_at).toLocaleDateString('en-US', { weekday: 'short' });
+          if (deliveryCounts[k] !== undefined) deliveryCounts[k]++;
+        });
+        setChartData(Object.keys(deliveryCounts).map(k => ({ name: k, delivered: deliveryCounts[k] })));
+
         setSourceOptions([]);
         let query = db.from('articles').select('*', { count: 'exact' });
-        if (!isAdmin) query = query.eq('user_id', session.user.id);
+        if (!isPlatformOperator) query = query.eq('user_id', session.user.id);
         if (debouncedFilters.title)  query = query.ilike('title', `%${debouncedFilters.title}%`);
         if (debouncedFilters.source) query = query.eq('source', debouncedFilters.source);
         if (debouncedFilters.minScore) query = query.gte('score', parseFloat(debouncedFilters.minScore));
@@ -149,7 +138,7 @@ export default function DashboardView({ session }) {
       setLoading(false);
     }
     fetchData();
-  }, [session, isAdmin, selectedUserId, page, debouncedFilters]);
+  }, [session, isPlatformOperator, selectedUserId, page, debouncedFilters]);
 
   async function submitFeedback(article, isHelpful) {
     if (!session?.user?.id || feedback[article.id]) return;
@@ -188,14 +177,14 @@ export default function DashboardView({ session }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid var(--card-border)', paddingBottom: '2rem' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.65rem', fontWeight: 900, padding: '0.2rem 0.6rem', background: isAdmin ? 'rgba(239,68,68,0.1)' : 'rgba(59,130,246,0.1)', color: isAdmin ? '#f87171' : '#60a5fa', borderRadius: '4px', border: '1px solid currentColor', letterSpacing: '0.05em' }}>
-              {isAdmin ? 'ADMIN CONSOLE' : 'PERSONAL DIGEST'}
+            <span style={{ fontSize: '0.65rem', fontWeight: 900, padding: '0.2rem 0.6rem', background: isPlatformOperator ? 'rgba(239,68,68,0.1)' : 'rgba(59,130,246,0.1)', color: isPlatformOperator ? '#f87171' : '#60a5fa', borderRadius: '4px', border: '1px solid currentColor', letterSpacing: '0.05em' }}>
+              {isPlatformOperator ? 'ADMIN CONSOLE' : 'PERSONAL DIGEST'}
             </span>
             <span style={{ width: '4px', height: '4px', background: 'var(--text-muted)', borderRadius: '50%' }} />
             <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>VERSION 2.4.0</span>
           </div>
           <h1 style={{ fontSize: '2.5rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#fff', margin: 0 }}>
-            {isAdmin ? 'Platform Intelligence' : 'Technology Signal'}
+            {isPlatformOperator ? 'Platform Intelligence' : 'Technology Signal'}
           </h1>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -208,8 +197,13 @@ export default function DashboardView({ session }) {
       </div>
 
       {/* STATS GRID */}
+      {platformError && (
+        <div className="glass-panel" style={{ padding: '1rem 1.25rem', border: '1px solid rgba(255, 123, 141, 0.28)', color: 'var(--semantic-danger)' }}>
+          {platformError}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-        <StatCard label={isAdmin ? 'Total Intelligence' : 'Collected'} value={stats.collected} icon={Database} color="var(--accent)" subValue="+12" subLabel="today" />
+        <StatCard label={isPlatformOperator ? 'Total Intelligence' : 'Collected'} value={stats.collected} icon={Database} color="var(--accent)" subValue="+12" subLabel="today" />
         <StatCard label="Delivered" value={stats.delivered} icon={Send} color="#10b981" />
         <StatCard label="Noise Reduction" value={stats.noiseRatio + '%'} icon={ShieldCheck} color="#6366f1" subLabel="filtered" />
         <StatCard label="Signal Strength" value={stats.avgScore.toFixed(1)} icon={Zap} color="#f59e0b" subValue="/ 5.0" />
@@ -245,7 +239,7 @@ export default function DashboardView({ session }) {
         </div>
       </div>
 
-      {isAdmin ? (
+      {isPlatformOperator ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* ADMIN COMMAND BAR */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0' }}>

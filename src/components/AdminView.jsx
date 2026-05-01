@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase, supabaseAdmin } from '../supabase';
+import { invokeAdminFunction } from '../adminApi';
 import { useUserProfile } from '../context/UserProfileContext';
 import { 
   Users, Activity, Shield, Rss, 
@@ -9,8 +9,12 @@ import {
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function AdminView({ session }) {
-  const { isAdmin, isAuditor } = useUserProfile();
-  const readOnly = isAuditor && !isAdmin;
+  const { hasPermission } = useUserProfile();
+  const canAccessPlatform = hasPermission('platform.access');
+  const canManageTenants = hasPermission('platform.tenants.manage');
+  const canAssignRoles = hasPermission('platform.roles.assign');
+  const canDeleteUsers = hasPermission('platform.users.delete');
+  const readOnly = !canManageTenants;
 
   const [globalStats, setGlobalStats] = useState({
     totalArticles: 0,
@@ -23,7 +27,6 @@ export default function AdminView({ session }) {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isAuthorized, setIsAuthorized] = useState(true);
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
@@ -32,65 +35,27 @@ export default function AdminView({ session }) {
   useEffect(() => {
     async function fetchAdminData() {
       setLoading(true);
-      if (!supabaseAdmin) {
-        setError('Service role key not configured. Add VITE_SUPABASE_SERVICE_ROLE_KEY to your .env file.');
+      setError(null);
+      if (!canAccessPlatform) {
+        setError('You are not authorized to access platform controls.');
         setLoading(false);
         return;
       }
 
       try {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-
-        const [
-          resArticles, resTenants, resSources, resChart, resColl, resSumm, resAllSources
-        ] = await Promise.all([
-          supabaseAdmin.from('articles').select('*', { count: 'exact', head: true }),
-          supabaseAdmin.from('tenant_profiles').select('*').order('full_name'),
-          supabaseAdmin.from('rss_sources').select('*', { count: 'exact', head: true }),
-          supabaseAdmin.from('articles').select('created_at').gte('created_at', sevenDaysAgo.toISOString()),
-          supabaseAdmin.from('telemetry').select('metrics').eq('service', 'collector').order('timestamp', { ascending: false }).limit(1),
-          supabaseAdmin.from('telemetry').select('metrics').eq('service', 'summarizer').order('timestamp', { ascending: false }).limit(1),
-          supabaseAdmin.from('rss_sources').select('user_id'),
-        ]);
-
-        const sourceCountByUser = {};
-        (resAllSources.data || []).forEach(s => {
-          sourceCountByUser[s.user_id] = (sourceCountByUser[s.user_id] || 0) + 1;
+        const data = await invokeAdminFunction('admin-get-command-center', {
+          userId: session.user.id,
         });
 
-        if (resTenants.data) {
-          setTenants(resTenants.data.map(t => ({ ...t, sourceCount: sourceCountByUser[t.user_id] || 0 })));
-        }
-
-        const days = {};
-        for (let i = 0; i < 7; i++) {
-          const d = new Date();
-          d.setDate(d.getDate() - i);
-          days[d.toISOString().split('T')[0]] = 0;
-        }
-        if (resChart.data) {
-          resChart.data.forEach(a => {
-            const date = a.created_at?.split('T')[0];
-            if (date && days[date] !== undefined) days[date]++;
-          });
-        }
-
-        const collMetrics = resColl.data?.[0]?.metrics || {};
-        const summMetrics = resSumm.data?.[0]?.metrics || {};
-
-        setGlobalStats({
-          totalArticles: resArticles.count || 0,
-          totalUsers: resTenants.data?.length || 0,
-          totalSources: resSources.count || 0,
-          pipelineHealth: collMetrics.total_sources > 0 
-            ? Math.round(((collMetrics.total_sources - collMetrics.error_count) / collMetrics.total_sources) * 100) 
-            : 0,
-          avgNoise: summMetrics.noise_ratio || 0
+        setGlobalStats(data.globalStats ?? {
+          totalArticles: 0,
+          totalUsers: 0,
+          totalSources: 0,
+          pipelineHealth: 0,
+          avgNoise: 0,
         });
-
-        setChartData(Object.entries(days).map(([name, value]) => ({ name, value })).reverse());
+        setTenants(data.tenants ?? []);
+        setChartData(data.chartData ?? []);
       } catch (e) {
         setError(e.message || String(e));
       } finally {
@@ -98,32 +63,48 @@ export default function AdminView({ session }) {
       }
     }
     fetchAdminData();
-  }, [session.user.id]);
+  }, [canAccessPlatform, session.user.id]);
 
   async function refreshTenants() {
-    if (!supabaseAdmin) return;
-    const { data } = await supabaseAdmin.from('tenant_profiles').select('*').order('full_name');
-    if (data) setTenants(data);
+    try {
+      const data = await invokeAdminFunction('admin-list-tenants', {
+        userId: session.user.id,
+      });
+      setTenants(data.tenants ?? []);
+    } catch (err) {
+      setError(err.message || String(err));
+    }
   }
 
   async function changeRole(userId, newRole) {
-    if (userId === session.user.id || readOnly) return;
+    if (userId === session.user.id || !canAssignRoles) return;
     setActionLoading(userId);
-    await supabaseAdmin.from('tenant_profiles').update({ role: newRole }).eq('user_id', userId);
-    await refreshTenants();
-    setActionLoading(null);
+    try {
+      await invokeAdminFunction('admin-update-role', {
+        actorUserId: session.user.id,
+        targetUserId: userId,
+        role: newRole,
+      });
+      await refreshTenants();
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setActionLoading(null);
+    }
   }
 
   async function removeUser(userId, name) {
-    if (userId === session.user.id || readOnly) return;
+    if (userId === session.user.id || !canDeleteUsers) return;
     if (!confirm(`Permanently delete "${name || 'Anonymous'}"?`)) return;
     setActionLoading(userId);
     try {
-      const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
-      if (error) throw error;
+      await invokeAdminFunction('admin-delete-user', {
+        actorUserId: session.user.id,
+        targetUserId: userId,
+      });
       await refreshTenants();
     } catch (err) {
-      alert("Error: " + err.message);
+      setError(err.message || String(err));
     } finally {
       setActionLoading(null);
     }
@@ -131,24 +112,23 @@ export default function AdminView({ session }) {
 
   async function addUser(e) {
     e.preventDefault();
-    if (!newUserEmail.trim() || readOnly) return;
+    if (!newUserEmail.trim() || !canManageTenants) return;
     setActionLoading('add');
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers();
-    const found = authUsers?.users?.find(u => u.email === newUserEmail.trim());
-    if (!found) {
-      alert(`User not found: ${newUserEmail}`);
+    try {
+      await invokeAdminFunction('admin-enroll-tenant', {
+        actorUserId: session.user.id,
+        email: newUserEmail.trim(),
+        fullName: newUserName.trim(),
+      });
+      setNewUserEmail('');
+      setNewUserName('');
+      setShowAddUser(false);
+      await refreshTenants();
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
       setActionLoading(null);
-      return;
     }
-    await supabaseAdmin.from('tenant_profiles').upsert({
-      user_id: found.id,
-      email: found.email,
-      full_name: newUserName.trim() || found.user_metadata?.full_name || newUserEmail.split('@')[0],
-      role: 'user'
-    });
-    setNewUserEmail(''); setNewUserName(''); setShowAddUser(false);
-    await refreshTenants();
-    setActionLoading(null);
   }
 
   const StatCard = ({ label, value, icon: Icon, color }) => (
@@ -163,6 +143,8 @@ export default function AdminView({ session }) {
 
   if (loading) return <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>Initializing Command Center...</div>;
 
+  if (error) return <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--semantic-danger)' }}>{error}</div>;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
       
@@ -176,13 +158,15 @@ export default function AdminView({ session }) {
           <h1 style={{ fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.03em', margin: 0 }}>Command Center</h1>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
-          <button 
-            className="secondary" 
-            style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            onClick={() => setShowAddUser(!showAddUser)}
-          >
-            {showAddUser ? <X size={14} /> : <UserPlus size={14} />} {showAddUser ? 'Cancel' : 'Enroll Tenant'}
-          </button>
+          {canManageTenants && (
+            <button 
+              className="secondary" 
+              style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              onClick={() => setShowAddUser(!showAddUser)}
+            >
+              {showAddUser ? <X size={14} /> : <UserPlus size={14} />} {showAddUser ? 'Cancel' : 'Enroll Tenant'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -240,7 +224,7 @@ export default function AdminView({ session }) {
       </div>
 
       {/* ADD USER FORM */}
-      {showAddUser && (
+      {showAddUser && canManageTenants && (
         <form onSubmit={addUser} className="glass-panel fade-in" style={{ padding: '1.5rem', background: 'rgba(59,130,246,0.03)', display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem', alignItems: 'flex-end' }}>
           <div className="filter-group"><label>Email Endpoint</label><input type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} placeholder="user@example.com" required /></div>
           <div className="filter-group"><label>Identity Alias</label><input type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} placeholder="Display name" /></div>
@@ -294,7 +278,7 @@ export default function AdminView({ session }) {
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                         <select 
                           value={t.role || 'user'} 
-                          disabled={isSelf || readOnly} 
+                          disabled={isSelf || !canAssignRoles} 
                           onChange={e => changeRole(t.user_id, e.target.value)}
                           style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--card-border)', color: '#fff', fontSize: '0.75rem', padding: '0.3rem', borderRadius: '6px' }}
                         >
@@ -303,7 +287,7 @@ export default function AdminView({ session }) {
                           <option value="premium">Premium</option>
                           <option value="user">User</option>
                         </select>
-                        <button className="secondary" disabled={isSelf || readOnly} onClick={() => removeUser(t.user_id, t.full_name)} style={{ color: '#ef4444', padding: '0.3rem 0.6rem', border: '1px solid rgba(239,68,68,0.2)' }}><Trash2 size={12} /></button>
+                        <button className="secondary" disabled={isSelf || !canDeleteUsers} onClick={() => removeUser(t.user_id, t.full_name)} style={{ color: '#ef4444', padding: '0.3rem 0.6rem', border: '1px solid rgba(239,68,68,0.2)' }}><Trash2 size={12} /></button>
                       </div>
                     </td>
                   </tr>
