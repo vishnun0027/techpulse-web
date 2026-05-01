@@ -7,6 +7,7 @@ import {
   Clock, Server, ShieldCheck, ShieldOff, Trash2, UserPlus, X, Mail, Eye, Globe, ChevronRight, Zap
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import TenantInspector from './TenantInspector';
 
 export default function AdminView({ session }) {
   const { hasPermission } = useUserProfile();
@@ -31,6 +32,7 @@ export default function AdminView({ session }) {
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
   const [actionLoading, setActionLoading] = useState(null);
+  const [selectedTenant, setSelectedTenant] = useState(null);
 
   useEffect(() => {
     async function fetchAdminData() {
@@ -276,6 +278,14 @@ export default function AdminView({ session }) {
                     <td style={{ fontWeight: 700, fontSize: '0.85rem' }}>{t.sourceCount || 0}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <button 
+                          className="secondary" 
+                          onClick={() => setSelectedTenant(t)}
+                          style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--card-border)' }}
+                          title="Inspect Node Intelligence"
+                        >
+                          <Zap size={12} color="var(--accent)" />
+                        </button>
                         <select 
                           value={t.role || 'user'} 
                           disabled={isSelf || !canAssignRoles} 
@@ -304,6 +314,13 @@ export default function AdminView({ session }) {
         .filter-group input { background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); color: #fff; padding: 0.6rem; border-radius: 8px; font-size: 0.8rem; }
         .fade-in { animation: fadeIn 0.3s ease-out; }
       `}} />
+
+      {selectedTenant && (
+        <TenantInspector 
+          tenant={selectedTenant} 
+          onClose={() => setSelectedTenant(null)} 
+        />
+      )}
     </div>
   );
 }
