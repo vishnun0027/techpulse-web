@@ -50,9 +50,23 @@ CREATE TABLE IF NOT EXISTS articles (
     score        FLOAT DEFAULT 0.0,
     source       VARCHAR(100),
     is_delivered BOOLEAN DEFAULT FALSE,
+    v2_processed BOOLEAN DEFAULT FALSE,
+    why_it_matters TEXT,
+    novelty_score FLOAT DEFAULT 0.0,
     published_at TIMESTAMPTZ,
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT articles_source_url_userid_key UNIQUE (source_url, user_id)
+);
+
+-- User Feedback
+CREATE TABLE IF NOT EXISTS user_feedback (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id        UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    article_id     UUID REFERENCES articles(id) ON DELETE CASCADE,
+    is_helpful     BOOLEAN, -- for binary feedback
+    signal         TEXT,    -- for granular feedback ('more_like_this', 'less_like_this', 'saved')
+    score_at_time  FLOAT,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- RSS Sources
@@ -67,6 +81,43 @@ CREATE TABLE IF NOT EXISTS rss_sources (
     CONSTRAINT rss_sources_url_userid_key UNIQUE (url, user_id)
 );
 
+-- ── 2.5 ANALYTICS VIEWS (Radar Support) ──
+
+-- Article Events (Strategic Clusters)
+-- Aggregates articles by their primary topic to simulate clusters
+CREATE OR REPLACE VIEW article_events AS
+SELECT 
+    md5(user_id::text || topics[1])::uuid as id,
+    user_id,
+    topics[1] as theme,
+    topics[1] as title,
+    count(*) as article_count,
+    max(created_at) as last_updated
+FROM articles
+WHERE topics IS NOT NULL AND array_length(topics, 1) > 0
+GROUP BY user_id, topics[1];
+
+-- Source Health (Signal Integrity)
+-- Aggregates performance metrics per RSS source
+CREATE OR REPLACE VIEW source_health AS
+SELECT 
+    rs.id as source_id,
+    rs.user_id,
+    rs.id as id, -- for Supabase client single-row selects
+    count(a.id) as articles_ingested,
+    count(CASE WHEN a.is_delivered THEN 1 END) as articles_delivered,
+    -- Simple quality score: % of delivered articles with positive bias
+    CASE 
+        WHEN count(a.id) > 0 THEN (count(CASE WHEN a.is_delivered THEN 1 END)::float / count(a.id)::float)
+        ELSE 0 
+    END as quality_score,
+    -- Mock clicked count from telemetry would go here, using 0 for now
+    0 as articles_clicked
+FROM rss_sources rs
+LEFT JOIN articles a ON a.source = rs.name AND a.user_id = rs.user_id
+GROUP BY rs.id, rs.user_id;
+
+
 -- App Config
 CREATE TABLE IF NOT EXISTS app_config (
     key        TEXT NOT NULL,
@@ -80,10 +131,11 @@ CREATE TABLE IF NOT EXISTS app_config (
 CREATE TABLE IF NOT EXISTS telemetry (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    service     TEXT NOT NULL,   -- 'collector', 'summarizer', 'delivery'
+    service     TEXT NOT NULL,   -- 'collector', 'summarizer', 'delivery', 'webapp'
+    event       TEXT,            -- Event name for webapp/admin actions
     metric_name TEXT,            -- Flat metric name for UI 2.0
     value       FLOAT8,          -- Flat metric value for UI 2.0
-    metrics     JSONB NOT NULL,  -- Legacy JSON structure
+    metrics     JSONB NOT NULL DEFAULT '{}'::jsonb,  -- Legacy JSON structure
     success     BOOLEAN DEFAULT TRUE,
     timestamp   TIMESTAMPTZ DEFAULT NOW()
 );
@@ -170,6 +222,14 @@ ALTER TABLE rss_sources     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE articles        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE telemetry       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE admin_audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_feedback   ENABLE ROW LEVEL SECURITY;
+
+-- User Feedback policies
+DROP POLICY IF EXISTS "Users can view own feedback" ON user_feedback;
+CREATE POLICY "Users can view own feedback" ON user_feedback FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own feedback" ON user_feedback;
+CREATE POLICY "Users can insert own feedback" ON user_feedback FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Tenant Profiles: granular policies ✅
 DROP POLICY IF EXISTS "Users can view own profile" ON tenant_profiles;

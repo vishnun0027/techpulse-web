@@ -9,22 +9,16 @@ export default function DashboardLayout({ session }) {
   const menuRef = useRef(null);
   const navigate = useNavigate();
 
-  // Role data from context — no extra DB call needed
+  // Role data from context
   const { isAuditor, canNav, roleLabel } = useUserProfile();
 
   const handleLogout = async (event) => {
     event?.preventDefault();
-    event?.stopPropagation();
     setShowMenu(false);
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Logout failed:', error.message);
-      return;
-    }
+    await supabase.auth.signOut();
     navigate('/auth', { replace: true });
   };
 
-  // Close menu when clicking outside
   useEffect(() => {
     function handleClickOutside(event) {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -37,140 +31,107 @@ export default function DashboardLayout({ session }) {
 
   return (
     <div className="app-container">
-      <nav className="navbar glass-panel" style={{ 
-        position: 'sticky', 
-        top: 0, 
-        zIndex: 100,
-        backdropFilter: 'blur(30px)' 
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4rem' }}>
-          <div className="brand" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
-            <div className="brand-mark">
-              <Activity size={22} color="var(--accent)" strokeWidth={3} />
-            </div>
-            <div className="brand-copy">
-              <span className="brand-kicker">Signal OS</span>
-              <span className="brand-title">TechPulse Pro</span>
-            </div>
+      <nav className="navbar" style={{ position: 'sticky', top: '1rem', zIndex: 100 }}>
+        <div className="brand" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+          <div className="brand-mark">
+            <Activity size={18} color="white" strokeWidth={3} />
           </div>
-          
-          <div className="nav-links">
-            {/* Dashboard — all roles */}
-            {canNav('dashboard') && (
-              <NavLink to="/" end className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <LayoutDashboard size={18} /> <span>Dashboard</span>
-              </NavLink>
-            )}
-            {/* Settings — all roles */}
-            {canNav('settings') && (
-              <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <Settings size={18} /> <span>Settings</span>
-              </NavLink>
-            )}
-            {/* Morning Brief — admin (system report) + premium + user */}
-            {canNav('morningBrief') && (
-              <NavLink to="/brief" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <Newspaper size={18} /> <span>Morning Brief</span>
-              </NavLink>
-            )}
-            {/* Ask TechPulse — admin + premium only */}
-            {canNav('semanticSearch') && (
-              <NavLink to="/search" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <Search size={18} /> <span>Ask TechPulse</span>
-              </NavLink>
-            )}
-            {/* Radar — premium + standard user only (personal RSS signal) */}
-            {canNav('radar') && (
-              <NavLink to="/radar" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <Activity size={18} /> <span>Radar</span>
-              </NavLink>
-            )}
-            {/* Admin Console — admin + auditor */}
-            {canNav('adminConsole') && (
-              <NavLink
-                to="/admin"
-                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                style={{ color: isAuditor ? 'var(--accent)' : 'var(--semantic-warning)', marginLeft: '1rem' }}
-              >
-                <Shield size={18} /> <span>{isAuditor ? 'Audit' : 'Admin'}</span>
-              </NavLink>
-            )}
-          </div>  {/* end nav-links */}
-        </div>  {/* end left flex group */}
-        <div style={{ position: 'relative' }} ref={menuRef}>
+          <div className="brand-copy">
+            <span className="brand-kicker">TechPulse</span>
+            <span className="brand-title">Intelligence</span>
+          </div>
+        </div>
+        
+        <div className="nav-links">
+          {canNav('dashboard') && (
+            <NavLink to="/" end className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <LayoutDashboard size={16} /> <span>Dashboard</span>
+            </NavLink>
+          )}
+          {canNav('morningBrief') && (
+            <NavLink to="/brief" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <Newspaper size={16} /> <span>Brief</span>
+            </NavLink>
+          )}
+          {canNav('semanticSearch') && (
+            <NavLink to="/search" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <Search size={16} /> <span>Ask AI</span>
+            </NavLink>
+          )}
+          {canNav('radar') && (
+            <NavLink to="/radar" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <Activity size={16} /> <span>Radar</span>
+            </NavLink>
+          )}
+          {canNav('settings') && (
+            <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <Settings size={16} /> <span>Settings</span>
+            </NavLink>
+          )}
+          {canNav('adminConsole') && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              style={{ color: isAuditor ? 'var(--accent)' : 'var(--semantic-warning)' }}
+            >
+              <Shield size={16} /> <span>Admin</span>
+            </NavLink>
+          )}
+        </div>
+
+        <div className="profile-container" style={{ position: 'relative' }} ref={menuRef}>
           <button 
             type="button"
-            className="secondary" 
+            className="secondary profile-button" 
             onClick={() => setShowMenu(prev => !prev)}
-            style={{ background: showMenu ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.04)' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'transparent' }}
           >
-            <div className="profile-trigger">
-              <div className="profile-avatar">
-              <User size={16} color="white" />
-              </div>
-              <div style={{ textAlign: 'left' }}>
-                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
-                  {session.user.user_metadata?.full_name || session.user.email.split('@')[0]}
-                </div>
-                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  {roleLabel}
-                </div>
+            <div className="profile-avatar">
+              <User size={14} />
+            </div>
+            <div className="profile-text" style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'white' }}>
+                {session.user.user_metadata?.full_name?.split(' ')[0] || session.user.email.split('@')[0]}
               </div>
             </div>
-            <ChevronDown size={14} style={{ transform: showMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }} />
+            <ChevronDown size={12} style={{ opacity: 0.5, transform: showMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
           </button>
 
           {showMenu && (
             <div className="glass-panel" style={{ 
               position: 'absolute', 
-              top: 'calc(100% + 0.75rem)', 
+              top: 'calc(100% + 0.5rem)', 
               right: 0, 
-              minWidth: '240px', 
-              padding: '0.75rem', 
+              minWidth: '200px', 
+              padding: '0.5rem', 
               zIndex: 101,
-              boxShadow: '0 20px 50px -10px rgba(0,0,0,0.5)',
-              transform: 'translateY(0)',
-              opacity: 1,
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+              borderRadius: '16px'
             }}>
-              <div style={{ padding: '0.5rem 0.75rem 0.75rem', borderBottom: '1px solid var(--card-border)', marginBottom: '0.5rem' }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.1rem' }}>
-                  {session.user.user_metadata?.full_name || 'User Profile'}
-                </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {session.user.email}
-                </div>
+              <div style={{ padding: '0.75rem', borderBottom: '1px solid var(--card-border)', marginBottom: '0.25rem' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>{session.user.email}</div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{roleLabel}</div>
               </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                <button 
-                  type="button"
-                  className="secondary" 
-                  onClick={handleLogout} 
-                  style={{ 
-                    width: '100%', 
-                    justifyContent: 'flex-start', 
-                    gap: '0.75rem', 
-                    padding: '0.65rem 0.75rem',
-                    border: 'none',
-                    color: 'var(--semantic-danger)',
-                    background: 'transparent',
-                    borderRadius: '8px'
-                  }}
-                  onMouseOver={e => e.currentTarget.style.background = 'var(--semantic-danger-bg)'}
-                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <LogOut size={16} /> 
-                  <span style={{ fontWeight: 600 }}>Sign Out</span>
-                </button>
-              </div>
+              <button 
+                type="button"
+                onClick={handleLogout} 
+                style={{ 
+                  width: '100%', 
+                  justifyContent: 'flex-start', 
+                  gap: '0.5rem', 
+                  padding: '0.6rem 0.75rem',
+                  color: 'var(--semantic-danger)',
+                  background: 'transparent',
+                  boxShadow: 'none'
+                }}
+              >
+                <LogOut size={14} /> <span>Sign Out</span>
+              </button>
             </div>
           )}
         </div>
       </nav>
 
-
-      <main className="main-content" style={{ margin: '0 auto', width: '100%', maxWidth: '1400px' }}>
+      <main className="main-content">
         <Outlet />
       </main>
     </div>

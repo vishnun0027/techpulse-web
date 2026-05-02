@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './supabase';
-import { UserProfileProvider, useUserProfile } from './context/UserProfileContext';
+import { UserProfileProvider } from './context/UserProfileProvider';
+import { useUserProfile } from './context/UserProfileContext';
 import AuthView from './components/AuthView';
 import DashboardLayout from './components/DashboardLayout';
 import DashboardView from './components/DashboardView';

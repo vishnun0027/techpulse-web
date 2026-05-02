@@ -15,7 +15,8 @@ export default function AdminView({ session }) {
   const canManageTenants = hasPermission('platform.tenants.manage');
   const canAssignRoles = hasPermission('platform.roles.assign');
   const canDeleteUsers = hasPermission('platform.users.delete');
-  const readOnly = !canManageTenants;
+  const isAuditor = !canManageTenants;
+  const readOnly = isAuditor;
 
   const [globalStats, setGlobalStats] = useState({
     totalArticles: 0,
@@ -31,7 +32,6 @@ export default function AdminView({ session }) {
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
-  const [actionLoading, setActionLoading] = useState(null);
   const [selectedTenant, setSelectedTenant] = useState(null);
 
   useEffect(() => {
@@ -80,7 +80,6 @@ export default function AdminView({ session }) {
 
   async function changeRole(userId, newRole) {
     if (userId === session.user.id || !canAssignRoles) return;
-    setActionLoading(userId);
     try {
       await invokeAdminFunction('admin-update-role', {
         actorUserId: session.user.id,
@@ -90,15 +89,12 @@ export default function AdminView({ session }) {
       await refreshTenants();
     } catch (err) {
       setError(err.message || String(err));
-    } finally {
-      setActionLoading(null);
     }
   }
 
   async function removeUser(userId, name) {
     if (userId === session.user.id || !canDeleteUsers) return;
     if (!confirm(`Permanently delete "${name || 'Anonymous'}"?`)) return;
-    setActionLoading(userId);
     try {
       await invokeAdminFunction('admin-delete-user', {
         actorUserId: session.user.id,
@@ -107,15 +103,12 @@ export default function AdminView({ session }) {
       await refreshTenants();
     } catch (err) {
       setError(err.message || String(err));
-    } finally {
-      setActionLoading(null);
     }
   }
 
   async function addUser(e) {
     e.preventDefault();
     if (!newUserEmail.trim() || !canManageTenants) return;
-    setActionLoading('add');
     try {
       await invokeAdminFunction('admin-enroll-tenant', {
         actorUserId: session.user.id,
@@ -128,97 +121,93 @@ export default function AdminView({ session }) {
       await refreshTenants();
     } catch (err) {
       setError(err.message || String(err));
-    } finally {
-      setActionLoading(null);
     }
   }
 
   const StatCard = ({ label, value, icon: Icon, color }) => (
-    <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', borderTop: `1px solid ${color || 'transparent'}` }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>{label.toUpperCase()}</span>
-        <Icon size={14} style={{ color: color || 'var(--text-muted)', opacity: 0.6 }} />
+    <div className="stat-card" style={{ borderTop: `2px solid ${color || 'var(--card-border)'}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+        <span style={{ fontSize: '0.55rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
+        <Icon size={12} style={{ color: color || 'var(--text-muted)', opacity: 0.5 }} />
       </div>
-      <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fff' }}>{loading ? '...' : value}</div>
+      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white' }}>{loading ? '...' : value}</div>
     </div>
   );
 
-  if (loading) return <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>Initializing Command Center...</div>;
+  if (loading && tenants.length === 0) return <div className="p-8 text-center opacity-50">Initializing Center...</div>;
 
-  if (error) return <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--semantic-danger)' }}>{error}</div>;
+  if (error) return <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--semantic-danger)', fontSize: '0.875rem' }}>{error}</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '3rem' }}>
       
       {/* HEADER */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--card-border)', paddingBottom: '2rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid var(--card-border)', paddingBottom: '1rem' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-            <Shield size={20} color="var(--accent)" />
-            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--accent)', letterSpacing: '0.1em' }}>PLATFORM OPERATOR</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+            <Shield size={16} color="var(--accent)" />
+            <span style={{ fontSize: '0.55rem', fontWeight: 900, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Fleet Command</span>
           </div>
-          <h1 style={{ fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.03em', margin: 0 }}>Command Center</h1>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0 }}>System Operator</h1>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
           {canManageTenants && (
             <button 
               className="secondary" 
-              style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              style={{ padding: '0.4rem 1rem', borderRadius: '100px', fontSize: '0.75rem' }}
               onClick={() => setShowAddUser(!showAddUser)}
             >
-              {showAddUser ? <X size={14} /> : <UserPlus size={14} />} {showAddUser ? 'Cancel' : 'Enroll Tenant'}
+              {showAddUser ? <X size={14} /> : <UserPlus size={14} />} {showAddUser ? 'Cancel' : 'Enroll Node'}
             </button>
           )}
         </div>
       </div>
 
       {readOnly && (
-        <div style={{ padding: '1rem 1.5rem', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', color: '#93c5fd', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem', fontWeight: 600 }}>
-          <Eye size={16} /> Audit Mode: System-wide observation enabled. Write operations restricted.
+        <div style={{ padding: '0.75rem 1rem', background: 'var(--semantic-warning-bg)', border: '1px solid hsla(38, 92%, 50%, 0.1)', color: 'var(--semantic-warning)', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', fontWeight: 600 }}>
+          <Eye size={14} /> Audit Mode Restricted
         </div>
       )}
 
       {/* GLOBAL METRICS */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-        <StatCard label="Platform Intelligence" value={globalStats.totalArticles} icon={Zap} color="var(--accent)" />
-        <StatCard label="Fleet Capacity" value={globalStats.totalUsers} icon={Users} color="#10b981" />
-        <StatCard label="Global Registry" value={globalStats.totalSources} icon={Rss} color="#6366f1" />
-        <StatCard label="Core Uptime" value={globalStats.pipelineHealth + '%'} icon={Activity} color="#f59e0b" />
-        <StatCard label="Noise floor" value={globalStats.avgNoise + '%'} icon={ShieldCheck} color="#ec4899" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
+        <StatCard label="Total Intel" value={globalStats.totalArticles} icon={Zap} color="var(--accent)" />
+        <StatCard label="Fleet Size" value={globalStats.totalUsers} icon={Users} color="#10b981" />
+        <StatCard label="Registry" value={globalStats.totalSources} icon={Rss} color="#818cf8" />
+        <StatCard label="Uptime" value={globalStats.pipelineHealth + '%'} icon={Activity} color="#f59e0b" />
+        <StatCard label="Noise" value={globalStats.avgNoise + '%'} icon={ShieldCheck} color="#ec4899" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem' }}>
         {/* CHART */}
-        <div className="glass-panel" style={{ padding: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Synthesis Velocity</h3>
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>SYSTEM-WIDE AGGREGATE (7D)</span>
+        <div className="glass-panel" style={{ padding: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h3 style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Synthesis Rate</h3>
           </div>
-          <div style={{ height: '240px' }}>
-            <ResponsiveContainer>
+          <div style={{ height: '160px' }}>
+            <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.02)" />
                 <XAxis dataKey="name" hide />
-                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid var(--card-border)', borderRadius: '8px' }} />
-                <Area type="monotone" dataKey="value" stroke="var(--accent)" strokeWidth={3} fill="rgba(59, 130, 246, 0.05)" />
+                <Tooltip contentStyle={{ background: 'var(--bg-color)', border: '1px solid var(--card-border)', borderRadius: '8px', fontSize: '0.7rem' }} />
+                <Area type="monotone" dataKey="value" stroke="var(--accent)" strokeWidth={2} fill="var(--accent-glow)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* RECENT EVENTS MOCKUP */}
-        <div className="glass-panel" style={{ padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '0.9rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1.5rem' }}>Operational Status</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {/* STATUS */}
+        <div className="glass-panel" style={{ padding: '1rem' }}>
+          <h3 style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>Core Nodes</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {[
-              { label: 'Summarizer Node', status: 'ACTIVE', color: '#10b981' },
-              { label: 'Collector Engine', status: 'SYNCING', color: '#60a5fa' },
-              { label: 'Vector Database', status: 'CONNECTED', color: '#10b981' },
-              { label: 'Auth Gateway', status: 'SECURE', color: '#10b981' },
+              { label: 'Summarizer', status: 'ACTIVE', color: '#10b981' },
+              { label: 'Collector', status: 'SYNC', color: 'var(--accent)' },
+              { label: 'Database', status: 'OK', color: '#10b981' },
             ].map(e => (
-              <div key={e.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--card-border)' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>{e.label}</span>
-                <span style={{ fontSize: '0.65rem', fontWeight: 900, color: e.color }}>{e.status}</span>
+              <div key={e.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--card-border)' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 600 }}>{e.label}</span>
+                <span style={{ fontSize: '0.6rem', fontWeight: 800, color: e.color }}>{e.status}</span>
               </div>
             ))}
           </div>
@@ -227,77 +216,59 @@ export default function AdminView({ session }) {
 
       {/* ADD USER FORM */}
       {showAddUser && canManageTenants && (
-        <form onSubmit={addUser} className="glass-panel fade-in" style={{ padding: '1.5rem', background: 'rgba(59,130,246,0.03)', display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem', alignItems: 'flex-end' }}>
-          <div className="filter-group"><label>Email Endpoint</label><input type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} placeholder="user@example.com" required /></div>
-          <div className="filter-group"><label>Identity Alias</label><input type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} placeholder="Display name" /></div>
-          <button type="submit" style={{ height: '42px', padding: '0 2rem', fontWeight: 900 }}>ENROLL</button>
+        <form onSubmit={addUser} className="glass-panel" style={{ padding: '1.25rem', background: 'rgba(56,189,248,0.03)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', alignItems: 'flex-end' }}>
+          <div className="filter-group"><label>Endpoint</label><input type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} placeholder="Email..." required style={{ marginBottom: 0 }} /></div>
+          <div className="filter-group"><label>Alias</label><input type="text" value={newUserName} onChange={e => setNewUserName(e.target.value)} placeholder="Name..." style={{ marginBottom: 0 }} /></div>
+          <button type="submit" style={{ height: '36px', padding: '0 1.5rem', fontWeight: 700, borderRadius: '100px' }}>ENROLL</button>
         </form>
       )}
 
       {/* TENANT TABLE */}
-      <div className="glass-panel" style={{ overflow: 'hidden', background: 'transparent', border: '1px solid var(--card-border)' }}>
-        <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 900 }}>Fleet Management</h3>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>{tenants.length} NODES DISCOVERED</div>
+      <div className="glass-panel" style={{ overflow: 'hidden' }}>
+        <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ fontSize: '0.85rem', fontWeight: 800 }}>Fleet Management</h3>
+          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{tenants.length} NODES ONLINE</div>
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table className="data-table" style={{ border: 'none' }}>
+          <table className="data-table">
             <thead>
-              <tr style={{ background: 'rgba(255,255,255,0.01)' }}>
+              <tr>
                 <th>Identity</th>
-                <th>Endpoint</th>
-                <th>Role Architecture</th>
-                <th>Sources</th>
+                <th className="hide-mobile">Endpoint</th>
+                <th>Architecture</th>
+                <th className="hide-mobile">Sources</th>
                 <th style={{ textAlign: 'right' }}>Operations</th>
               </tr>
             </thead>
             <tbody>
               {tenants.map(t => {
                 const isSelf = t.user_id === session.user.id;
-                const isLoading = actionLoading === t.user_id;
-                const roleMap = {
-                  admin:   { color: '#f87171', label: '🛡️ ADMIN' },
-                  auditor: { color: '#60a5fa', label: '👁️ AUDITOR' },
-                  premium: { color: '#fbbf24', label: '⭐ PREMIUM' },
-                  user:    { color: '#94a3b8', label: 'STANDARD' },
-                };
-                const r = roleMap[t.role] || roleMap.user;
                 return (
-                  <tr key={t.user_id} style={{ opacity: isLoading ? 0.5 : 1 }}>
+                  <tr key={t.user_id}>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--card-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: 'var(--accent)' }}>{t.full_name?.[0] || 'A'}</div>
-                        <span style={{ fontWeight: 800 }}>{t.full_name || 'Anonymous'}</span>
-                        {isSelf && <span style={{ fontSize: '0.6rem', color: 'var(--accent)', fontWeight: 900, letterSpacing: '0.05em' }}>[YOU]</span>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--card-border)', display: 'grid', placeItems: 'center', fontWeight: 800, color: 'var(--accent)', fontSize: '0.65rem' }}>{t.full_name?.[0] || 'A'}</div>
+                        <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{t.full_name || 'Anon'}</span>
+                        {isSelf && <span style={{ fontSize: '0.5rem', color: 'var(--accent)', fontWeight: 900 }}>[SELF]</span>}
                       </div>
                     </td>
-                    <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t.email}</td>
-                    <td>
-                      <span style={{ fontSize: '0.65rem', fontWeight: 900, color: r.color, border: `1px solid ${r.color}`, padding: '0.2rem 0.6rem', borderRadius: '4px' }}>{r.label}</span>
-                    </td>
-                    <td style={{ fontWeight: 700, fontSize: '0.85rem' }}>{t.sourceCount || 0}</td>
+                    <td className="hide-mobile" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.email}</td>
+                    <td><span className="badge info" style={{ fontSize: '0.55rem' }}>{t.role}</span></td>
+                    <td className="hide-mobile" style={{ fontWeight: 700, fontSize: '0.75rem' }}>{t.sourceCount || 0}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                        <button 
-                          className="secondary" 
-                          onClick={() => setSelectedTenant(t)}
-                          style={{ padding: '0.3rem 0.6rem', border: '1px solid var(--card-border)' }}
-                          title="Inspect Node Intelligence"
-                        >
-                          <Zap size={12} color="var(--accent)" />
-                        </button>
+                      <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
                         <select 
                           value={t.role || 'user'} 
                           disabled={isSelf || !canAssignRoles} 
                           onChange={e => changeRole(t.user_id, e.target.value)}
-                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--card-border)', color: '#fff', fontSize: '0.75rem', padding: '0.3rem', borderRadius: '6px' }}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--card-border)', color: '#fff', fontSize: '0.65rem', padding: '0.2rem', borderRadius: '4px', marginBottom: 0, width: 'auto' }}
                         >
                           <option value="admin">Admin</option>
                           <option value="auditor">Auditor</option>
                           <option value="premium">Premium</option>
                           <option value="user">User</option>
                         </select>
-                        <button className="secondary" disabled={isSelf || !canDeleteUsers} onClick={() => removeUser(t.user_id, t.full_name)} style={{ color: '#ef4444', padding: '0.3rem 0.6rem', border: '1px solid rgba(239,68,68,0.2)' }}><Trash2 size={12} /></button>
+                        <button className="secondary" disabled={isSelf || !canDeleteUsers} onClick={() => removeUser(t.user_id, t.full_name)} style={{ color: 'var(--semantic-danger)', padding: '0.2rem 0.5rem' }}><Trash2 size={12} /></button>
                       </div>
                     </td>
                   </tr>
@@ -309,10 +280,11 @@ export default function AdminView({ session }) {
       </div>
       
       <style dangerouslySetInnerHTML={{ __html: `
-        .filter-group { display: flex; flex-direction: column; gap: 0.4rem; }
-        .filter-group label { font-size: 0.6rem; font-weight: 900; color: var(--text-muted); text-transform: uppercase; }
-        .filter-group input { background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); color: #fff; padding: 0.6rem; border-radius: 8px; font-size: 0.8rem; }
-        .fade-in { animation: fadeIn 0.3s ease-out; }
+        .filter-group label { font-size: 0.55rem; }
+        .filter-group input { padding: 0.4rem 0.75rem !important; }
+        @media (max-width: 768px) {
+          .hide-mobile { display: none !important; }
+        }
       `}} />
 
       {selectedTenant && (
